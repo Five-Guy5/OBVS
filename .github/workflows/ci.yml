@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify component layout
+        run: test -d Client && test -d Server && test -d Frontend && test -d Protocol
+
+      - name: Test
+        run: npm test
+
+      - name: Build protocol
+        run: npm run build -w @obvs/protocol
+
+      - name: Build frontend
+        run: npm run build -w @obvs/frontend
