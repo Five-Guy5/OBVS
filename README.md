@@ -7,14 +7,12 @@ Spectra. It is one monorepo holding the three project parts and the single share
 | Path | Component |
 | --- | --- |
 | `Client` | Observer capture client — ow-electron + TypeScript settings shell |
-| `Server` | Ingest, authoritative Match state, Broadcast — implementation stack undecided |
+| `Server` | Ingest, authoritative Match state, Broadcast — Node + TypeScript WebSocket service |
 | `Frontend` | OBS overlay web app (Vite + TypeScript shell; UI framework undecided) |
 | `Protocol` | Shared ingest event and Broadcast snapshot definitions |
 
-`Server` intentionally contains no implementation code. Its language, framework, build tooling,
-transport, and persistence choices belong to its owner. Add the chosen stack and its build/CI steps
-to that folder when implementation starts. `Client` is an ow-electron desktop app; `Frontend` is the
-only web app.
+`Server` is a Node + TypeScript service using `ws` for Observer ingest; Match state is in memory.
+`Client` is an ow-electron desktop app; `Frontend` is the only web app.
 
 ## Requirements
 
@@ -25,12 +23,23 @@ only web app.
 
 ```sh
 npm install
-npm run build      # protocol, then frontend, then client
+npm run build      # protocol, then frontend, client, and server
 npm test           # protocol tests and workspace tests
 npm run typecheck  # builds the protocol first, then typechecks every workspace
 ```
 
 The frontend dev server runs with `npm run dev -w @obvs/frontend`.
+
+The Server ingest endpoint runs with `npm run dev -w @obvs/server`. It listens on `OBVS_PORT`
+(default `3000`). Set `OBVS_AUTH_KEY` to require that key on logon; leave it unset for open
+ingest. The server speaks plain WebSocket, so terminate TLS in front of it for anything beyond
+local development.
+
+```sh
+# PowerShell
+$env:OBVS_AUTH_KEY = 'change-me'
+npm run dev -w @obvs/server
+```
 
 The Client settings window runs with `npm run dev -w @obvs/client`. The auth key is optional; leave
 it blank for an open-ingest server, and use "Remove saved key" to clear a stored key. The Client
@@ -48,8 +57,7 @@ npm run dev -w @obvs/client
 
 This step only establishes the repository, the component folders, and the shared protocol
 contract. The frontend is a plain Vite + TypeScript shell, so React, Svelte, Vue, or a no-framework
-implementation can be adopted without changing the monorepo shape. Server is a placeholder until
-its owner chooses a stack.
+implementation can be adopted without changing the monorepo shape.
 
 ## Protocol versioning
 
@@ -66,4 +74,4 @@ breaks every TypeScript consumer that uses the changed shape in the same build.
   must keep accepting at least the previous schema version.
 
 CI (`.github/workflows/ci.yml`) verifies the component layout, runs the protocol and workspace
-tests, and builds protocol, frontend, and client. Add the server build once its stack is selected.
+tests, and builds protocol, frontend, client, and server.
