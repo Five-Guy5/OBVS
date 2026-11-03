@@ -9,10 +9,11 @@
   "workspaces": [
     "Frontend",
     "Protocol",
-    "Client"
+    "Client",
+    "Server"
   ],
   "scripts": {
-    "build": "npm run build -w @obvs/protocol && npm run build -w @obvs/frontend && npm run build -w @obvs/client",
+    "build": "npm run build -w @obvs/protocol && npm run build -w @obvs/frontend && npm run build -w @obvs/client && npm run build -w @obvs/server",
     "typecheck": "npm run build -w @obvs/protocol && npm run typecheck --workspaces --if-present",
     "test": "npm run build -w @obvs/protocol && npm run test --workspaces --if-present"
   },
