@@ -70,6 +70,7 @@ describe("ingest event parsing", () => {
     assert.match(reasonFor({ eventId: "" })!, /Event id/);
     assert.match(reasonFor({ type: "toString" })!, /event type/);
     assert.match(reasonFor({ capturedAt: "yesterday" })!, /Capture timestamp/);
+    assert.match(reasonFor({ capturedAt: "2026-01-01" })!, /Capture timestamp/);
     assert.match(reasonFor({ payload: null })!, /payload/);
     assert.equal(parseIngestEvent(null).ok, false);
   });
@@ -98,5 +99,28 @@ describe("match registry", () => {
     assert.ok(second.ok);
     assert.equal(registry.remove(first.match), false);
     assert.equal(registry.get("group_1"), second.match);
+  });
+
+  it("expires a disconnected Match after the idle timeout", () => {
+    const registry = new MatchRegistry();
+    const claimed = registry.claim("group_1", observer);
+
+    assert.ok(claimed.ok);
+    assert.equal(registry.sweep(50, Date.now() + 100), 1);
+    assert.equal(registry.get("group_1"), undefined);
+  });
+
+  it("keeps a connected Match while it is active", () => {
+    const registry = new MatchRegistry();
+    const claimed = registry.claim("group_1", observer);
+
+    assert.ok(claimed.ok);
+    const connection = {};
+    assert.equal(claimed.match.attach(connection), true);
+    assert.equal(registry.sweep(50, Date.now() + 100), 0);
+
+    claimed.match.detach(connection);
+    assert.equal(registry.sweep(50, Date.now() + 100), 1);
+    assert.equal(registry.get("group_1"), undefined);
   });
 });

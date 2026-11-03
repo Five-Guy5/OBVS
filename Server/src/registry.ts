@@ -1,3 +1,4 @@
+import { DEFAULT_IDLE_TIMEOUT_MS } from "./config.js";
 import { Match, type ObserverInfo } from "./match.js";
 
 export type ClaimResult =
@@ -31,5 +32,19 @@ export class MatchRegistry {
     }
 
     return this.#matches.delete(match.groupCode);
+  }
+
+  /** Drop disconnected Matches that have been inactive past the timeout (S.4). */
+  sweep(timeoutMs = DEFAULT_IDLE_TIMEOUT_MS, now = Date.now()): number {
+    let removed = 0;
+
+    for (const [groupCode, match] of this.#matches) {
+      if (match.isIdle(now, timeoutMs)) {
+        this.#matches.delete(groupCode);
+        removed += 1;
+      }
+    }
+
+    return removed;
   }
 }

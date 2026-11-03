@@ -38,6 +38,7 @@ const INGEST_EVENT_TYPES = {
 } as const satisfies Record<IngestEventType, true>;
 
 const MAX_EVENT_ID_LENGTH = 128;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** Authoritative in-memory record for one group code's live Match. */
 export class Match {
@@ -49,6 +50,8 @@ export class Match {
   readonly #events: IngestEvent[] = [];
   readonly #capturedAtMs: number[] = [];
   readonly #eventIds = new Set<string>();
+  #connection: object | null = null;
+  #lastActivityAtMs = Date.now();
 
   constructor(
     readonly groupCode: string,
@@ -60,8 +63,33 @@ export class Match {
     return this.#events;
   }
 
+  get isConnected(): boolean {
+    return this.#connection !== null;
+  }
+
+  attach(connection: object): boolean {
+    if (this.#connection !== null) {
+      return false;
+    }
+    this.#connection = connection;
+    this.#lastActivityAtMs = Date.now();
+    return true;
+  }
+
+  detach(connection: object): void {
+    if (this.#connection === connection) {
+      this.#connection = null;
+    }
+  }
+
+  isIdle(now: number, timeoutMs: number): boolean {
+    return !this.isConnected && now - this.#lastActivityAtMs >= timeoutMs;
+  }
+
   /** Idempotent on eventId, so client retries never double-apply (NF.3.2). */
   append(event: IngestEvent): AppendResult {
+    this.#lastActivityAtMs = Date.now();
+
     if (this.#eventIds.has(event.eventId)) {
       return "duplicate";
     }
@@ -122,7 +150,9 @@ export function parseIngestEvent(input: unknown): EventParseResult {
     return { ok: false, reason: "Unknown event type." };
   }
 
-  if (typeof capturedAt !== "string" || Number.isNaN(Date.parse(capturedAt))) {
+  if (typeof capturedAt !== "string" ||
+      !ISO_TIMESTAMP.test(capturedAt) ||
+      Number.isNaN(Date.parse(capturedAt))) {
     return { ok: false, reason: "Capture timestamp must be an ISO 8601 string." };
   }
 

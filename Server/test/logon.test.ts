@@ -44,6 +44,7 @@ describe("logon request parsing", () => {
     assert.match(reasonFor({ observerName: "   " })!, /display name/);
     assert.match(reasonFor({ observerName: "bad\u0001name" })!, /display name/);
     assert.match(reasonFor({ clientVersion: 1 })!, /Client version/);
+    assert.match(reasonFor({ clientVersion: "9.9.9" })!, /Unsupported client version/);
     assert.match(reasonFor({ authKey: "" })!, /Auth key/);
     assert.match(reasonFor({ matchSecret: 42 })!, /Match secret/);
   });
@@ -95,6 +96,46 @@ describe("logon", () => {
     assert.equal(second.response.accepted, false);
     assert.equal(second.match, null);
     assert.equal(registry.get("group_1"), first.match);
+  });
+
+  it("resumes a disconnected Match with the correct secret", () => {
+    const registry = new MatchRegistry();
+    const first = logon(validRequest, config(), registry);
+
+    assert.ok(first.response.accepted);
+    const match = first.match!;
+    const resumed = logon({ ...validRequest, matchSecret: match.secret }, config(), registry);
+
+    assert.ok(resumed.response.accepted);
+    assert.equal(resumed.match, match);
+    assert.equal(resumed.response.matchSecret, match.secret);
+  });
+
+  it("rejects a wrong or missing secret while a Match exists", () => {
+    const registry = new MatchRegistry();
+    const first = logon(validRequest, config(), registry);
+
+    assert.ok(first.response.accepted);
+    const match = first.match!;
+
+    assert.equal(
+      logon({ ...validRequest, matchSecret: "wrong" }, config(), registry).response.accepted,
+      false,
+    );
+    assert.equal(logon(validRequest, config(), registry).response.accepted, false);
+    assert.equal(registry.get("group_1"), match);
+  });
+
+  it("rejects a resume while the Observer is still connected", () => {
+    const registry = new MatchRegistry();
+    const first = logon(validRequest, config(), registry);
+
+    assert.ok(first.response.accepted);
+    const match = first.match!;
+    match.attach({});
+
+    const resumed = logon({ ...validRequest, matchSecret: match.secret }, config(), registry);
+    assert.equal(resumed.response.accepted, false);
   });
 
   it("keeps separate Matches for separate group codes", () => {

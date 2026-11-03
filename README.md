@@ -30,10 +30,13 @@ npm run typecheck  # builds the protocol first, then typechecks every workspace
 
 The frontend dev server runs with `npm run dev -w @obvs/frontend`.
 
-The Server ingest endpoint runs with `npm run dev -w @obvs/server`. It listens on `OBVS_PORT`
-(default `3000`). Set `OBVS_AUTH_KEY` to require that key on logon; leave it unset for open
-ingest. The server speaks plain WebSocket, so terminate TLS in front of it for anything beyond
-local development.
+The Server ingest endpoint runs with `npm run dev -w @obvs/server` after
+`npm run build -w @obvs/protocol` (or the root `npm run build`) so the workspace dependency
+resolves. It listens on `127.0.0.1:OBVS_PORT` by default (port `3000`). Set `OBVS_HOST` to bind
+another interface, and `OBVS_AUTH_KEY` to require that key on logon; leave the key unset for open
+ingest. The server speaks plain WebSocket, so terminate TLS in front of it for anything beyond local
+development. `OBVS_MAX_PAYLOAD_BYTES` defaults to `8388608`, and `OBVS_IDLE_TIMEOUT_MS` defaults to
+`600000`.
 
 ```sh
 # PowerShell

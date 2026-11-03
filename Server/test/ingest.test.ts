@@ -6,20 +6,25 @@ import { PROTOCOL_VERSION, type LogonResponse } from "@obvs/protocol";
 import { WebSocket, type WebSocketServer } from "ws";
 
 import { DEFAULT_CAPABILITIES } from "../src/config.js";
-import { startIngestServer } from "../src/ingest.js";
+import { LogonLimiter, startIngestServer } from "../src/ingest.js";
 import { MatchRegistry } from "../src/registry.js";
 
 const registry = new MatchRegistry();
 let server: WebSocketServer;
 let url: string;
 
-function logonFrame(groupCode: string, authKey: string | null = "secret"): string {
+function logonFrame(
+  groupCode: string,
+  authKey: string | null = "secret",
+  matchSecret?: string,
+): string {
   return JSON.stringify({
     protocolVersion: PROTOCOL_VERSION,
     groupCode,
     observerName: "Observer",
     clientVersion: "0.1.0",
     authKey,
+    ...(matchSecret === undefined ? {} : { matchSecret }),
   });
 }
 
@@ -108,19 +113,49 @@ describe("ingest WebSocket", () => {
     assert.equal(registry.get("ws_auth"), undefined);
   });
 
-  it("rejects a second Observer and frees the group code on disconnect", async () => {
+  it("rejects a second Observer, retains the Match, and resumes with the secret", async () => {
     const first = await connect();
-    assert.ok((await logonOn(first, logonFrame("ws_single"))).accepted);
+    const firstResponse = await logonOn(first, logonFrame("ws_single"));
+    assert.ok(firstResponse.accepted);
+
+    first.send(shopFrame("e1", "2026-01-01T00:00:01Z"));
+    await waitFor(() => registry.get("ws_single")?.events.length === 1);
 
     const second = await connect();
     const rejected = await logonOn(second, logonFrame("ws_single"));
     assert.equal(rejected.accepted, false);
+    second.close();
 
+    const closed = once(first, "close");
     first.close();
-    await waitFor(() => registry.get("ws_single") === undefined);
+    await closed;
+    await waitFor(() => registry.get("ws_single")?.isConnected === false);
 
     const third = await connect();
-    assert.ok((await logonOn(third, logonFrame("ws_single"))).accepted);
+    const resumed = await logonOn(
+      third,
+      logonFrame("ws_single", "secret", firstResponse.matchSecret),
+    );
+    assert.ok(resumed.accepted);
+    assert.equal(resumed.matchSecret, firstResponse.matchSecret);
+    assert.deepEqual(registry.get("ws_single")?.events.map((event) => event.eventId), ["e1"]);
     third.close();
+  });
+});
+
+describe("logon rate limiter", () => {
+  it("blocks after five failures for the same IP", () => {
+    const limiter = new LogonLimiter();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      assert.equal(limiter.allow("1.2.3.4"), true);
+      limiter.fail("1.2.3.4");
+    }
+
+    assert.equal(limiter.allow("1.2.3.4"), false);
+    assert.equal(limiter.allow("5.6.7.8"), true);
+
+    limiter.reset("1.2.3.4");
+    assert.equal(limiter.allow("1.2.3.4"), true);
   });
 });

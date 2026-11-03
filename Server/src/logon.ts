@@ -10,6 +10,8 @@ const GROUP_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
 const MAX_TEXT_LENGTH = 64;
 const MAX_AUTH_KEY_LENGTH = 1024;
+// Update alongside the Client package version.
+const SUPPORTED_CLIENT_VERSIONS = new Set(["0.1.0"]);
 
 /** Check an untrusted logon frame; the version gate runs before any other field (NF.9.1). */
 export function parseLogonRequest(input: unknown): LogonParseResult {
@@ -42,6 +44,10 @@ export function parseLogonRequest(input: unknown): LogonParseResult {
 
   if (!isDisplayText(clientVersion)) {
     return { ok: false, reason: "Client version must be 1-64 printable characters." };
+  }
+
+  if (!SUPPORTED_CLIENT_VERSIONS.has(clientVersion.trim())) {
+    return { ok: false, reason: "Unsupported client version." };
   }
 
   if (
@@ -89,7 +95,7 @@ function isDisplayText(value: unknown): value is string {
   return text.length > 0 && text.length <= MAX_TEXT_LENGTH && !CONTROL_CHARACTERS.test(text);
 }
 
-function constantTimeEqual(expected: string, actual: string): boolean {
+export function constantTimeEqual(expected: string, actual: string): boolean {
   const expectedBytes = Buffer.from(expected, "utf8");
   const actualBytes = Buffer.from(actual, "utf8");
 
