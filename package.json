@@ -12,7 +12,7 @@
     "Client"
   ],
   "scripts": {
-    "build": "npm run build -w @obvs/protocol && npm run build -w @obvs/frontend",
+    "build": "npm run build -w @obvs/protocol && npm run build -w @obvs/frontend && npm run build -w @obvs/client",
     "typecheck": "npm run build -w @obvs/protocol && npm run typecheck --workspaces --if-present",
     "test": "npm run build -w @obvs/protocol && npm run test --workspaces --if-present"
   },

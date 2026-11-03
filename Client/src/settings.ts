@@ -15,7 +15,7 @@ export type SaveResult =
   | { ok: false; errors?: FieldErrors; message?: string };
 
 /** Check untrusted data from the settings window before saving. */
-export function validateSettings(input: unknown, hasSavedKey: boolean):
+export function validateSettings(input: unknown, allowInsecure = false):
   { data: SettingsInput | null; errors: FieldErrors } {
   if (!input || typeof input !== 'object') {
     return { data: null, errors: { serverUrl: 'Invalid settings data.' } };
@@ -42,14 +42,23 @@ export function validateSettings(input: unknown, hasSavedKey: boolean):
   } else {
     try {
       const url = new URL(serverUrl);
-      if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) ||
-          !/^(https?|wss?):\/\//i.test(serverUrl) ||
-          !url.hostname || url.username || url.password || url.hash ||
-          /\s/.test(serverUrl) || serverUrl.length > 2048) {
-        errors.serverUrl = 'Use an HTTP(S) or WS(S) URL without credentials, spaces, or fragments.';
+      const secure = url.protocol === 'https:' || url.protocol === 'wss:';
+      const insecure = url.protocol === 'http:' || url.protocol === 'ws:';
+      // Non-TLS is a local-development escape hatch; packaged builds never enable it.
+      const allowedInsecure = allowInsecure && insecure && isLoopbackHost(url.hostname);
+      if (!secure && !allowedInsecure) {
+        errors.serverUrl = insecure
+          ? 'Use HTTPS or WSS. Non-TLS is only allowed for localhost in development.'
+          : 'Use an HTTPS or WSS URL.';
+      } else if (
+        !/^(https?|wss?):\/\//i.test(serverUrl) ||
+        !url.hostname || url.username || url.password || url.hash || url.search ||
+        /\s/.test(serverUrl) || serverUrl.length > 2048
+      ) {
+        errors.serverUrl = 'Use an HTTPS or WSS URL without credentials, query, or fragments.';
       }
     } catch {
-      errors.serverUrl = 'Enter a valid URL, e.g. https://localhost:3000.';
+      errors.serverUrl = 'Enter a valid HTTPS or WSS URL, e.g. https://localhost:3000.';
     }
   }
 
@@ -66,10 +75,8 @@ export function validateSettings(input: unknown, hasSavedKey: boolean):
     errors.displayName = 'Use up to 64 characters without control characters.';
   }
 
-  if (!authKey.trim() && !hasSavedKey) {
-    errors.authKey = 'Auth key is required on first setup.';
-  } else if (authKey.length > 1024 || /[\r\n\x00]/.test(authKey) ||
-             (authKey.length > 0 && !authKey.trim())) {
+  if (authKey.length > 1024 || /[\r\n\x00]/.test(authKey) ||
+      (authKey.length > 0 && !authKey.trim())) {
     errors.authKey = 'Auth key must be a nonblank single line (max 1024 characters).';
   }
 
@@ -77,4 +84,9 @@ export function validateSettings(input: unknown, hasSavedKey: boolean):
     data: { serverUrl, groupCode, displayName, authKey },
     errors
   };
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' ||
+    hostname === '::1' || hostname === '[::1]';
 }

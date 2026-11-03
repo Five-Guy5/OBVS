@@ -13,5 +13,7 @@ contextBridge.exposeInMainWorld('obvs', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
 
   saveSettings: (values: PreloadSettingsInput) =>
-    ipcRenderer.invoke('settings:save', values)
+    ipcRenderer.invoke('settings:save', values),
+
+  clearAuthKey: () => ipcRenderer.invoke('settings:clear-auth-key')
 });

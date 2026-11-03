@@ -34,3 +34,9 @@ jobs:
 
       - name: Build frontend
         run: npm run build -w @obvs/frontend
+
+      - name: Build client
+        run: npm run build -w @obvs/client
+
+      - name: Typecheck
+        run: npm run typecheck

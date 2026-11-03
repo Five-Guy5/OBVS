@@ -5,15 +5,20 @@ type FieldErrors = Partial<Record<Field, string>>;
 
 interface Window {
   obvs: {
-    loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & { hasAuthKey: boolean }>;
+    loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & {
+      hasAuthKey: boolean;
+      warning?: string;
+    }>;
     saveSettings(values: SettingsInput): Promise<
       { ok: true } | { ok: false; errors?: FieldErrors; message?: string }
     >;
+    clearAuthKey(): Promise<void>;
   };
 }
 
 const form = document.querySelector<HTMLFormElement>('#settings-form')!;
 const saveButton = document.querySelector<HTMLButtonElement>('#save')!;
+const clearKeyButton = document.querySelector<HTMLButtonElement>('#clear-auth-key')!;
 const statusMessage = document.querySelector<HTMLElement>('#status')!;
 const hint = document.querySelector<HTMLElement>('#key-hint')!;
 const fields: Record<Field, HTMLInputElement> = {
@@ -36,7 +41,8 @@ function showErrors(errors: FieldErrors = {}): void {
 function updateHint(): void {
   hint.textContent = hasAuthKey
     ? 'Auth key saved securely. Leave blank to keep it, or enter a replacement.'
-    : 'Auth key required on first setup (stored in the OS credential store).';
+    : 'Auth key is optional. Leave blank if the server has no auth key.';
+  clearKeyButton.hidden = !hasAuthKey;
 }
 
 async function initialize(): Promise<void> {
@@ -48,9 +54,11 @@ async function initialize(): Promise<void> {
     fields.displayName.value = saved.displayName;
     hasAuthKey = saved.hasAuthKey;
     updateHint();
-    saveButton.disabled = false;
+    if (saved.warning) statusMessage.textContent = saved.warning;
   } catch {
-    statusMessage.textContent = 'Could not load settings. Check OS credential access.';
+    statusMessage.textContent = 'Could not load settings. Check OS credential access, then enter values and save.';
+  } finally {
+    saveButton.disabled = false;
   }
 }
 
@@ -59,6 +67,7 @@ form.addEventListener('submit', async (event) => {
   showErrors();
   statusMessage.textContent = '';
   saveButton.disabled = true;
+  clearKeyButton.disabled = true;
   const values: SettingsInput = {
     serverUrl: fields.serverUrl.value,
     groupCode: fields.groupCode.value,
@@ -75,13 +84,32 @@ form.addEventListener('submit', async (event) => {
     fields.serverUrl.value = values.serverUrl.trim();
     fields.groupCode.value = values.groupCode.trim();
     fields.displayName.value = values.displayName.trim();
-    hasAuthKey = true;
+    hasAuthKey = values.authKey.length > 0 || hasAuthKey;
     fields.authKey.value = '';
     updateHint();
     statusMessage.textContent = 'Settings saved.';
   } catch {
     statusMessage.textContent = 'Could not save settings.';
   } finally {
+    saveButton.disabled = false;
+    clearKeyButton.disabled = false;
+  }
+});
+
+clearKeyButton.addEventListener('click', async () => {
+  clearKeyButton.disabled = true;
+  saveButton.disabled = true;
+  statusMessage.textContent = '';
+  try {
+    await window.obvs.clearAuthKey();
+    hasAuthKey = false;
+    fields.authKey.value = '';
+    updateHint();
+    statusMessage.textContent = 'Saved auth key removed.';
+  } catch {
+    statusMessage.textContent = 'Could not remove the saved auth key.';
+  } finally {
+    clearKeyButton.disabled = false;
     saveButton.disabled = false;
   }
 });

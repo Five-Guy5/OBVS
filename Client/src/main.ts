@@ -8,6 +8,8 @@ import { validateSettings, type PublicSettings, type SaveResult } from './settin
 
 const SERVICE = 'io.obvs.client';
 const ACCOUNT = 'server-auth-key';
+// Non-TLS is a local-development escape hatch, never available in packaged builds.
+const ALLOW_INSECURE_URL = !app.isPackaged && process.env.OBVS_ALLOW_INSECURE_URL === '1';
 let mainWindow: BrowserWindow | null = null;
 let saving = false;
 
@@ -35,7 +37,13 @@ async function readSettings(): Promise<PublicSettings | null> {
 }
 
 async function loadSettings() {
-  const stored = await readSettings();
+  let stored: PublicSettings | null = null;
+  let warning: string | undefined;
+  try {
+    stored = await readSettings();
+  } catch {
+    warning = 'The saved settings file could not be read. Enter values and save to replace it.';
+  }
   const hasAuthKey = (await keytar.getPassword(SERVICE, ACCOUNT)) !== null;
   let defaultName = 'Observer';
   try { defaultName = userInfo().username.slice(0, 64) || 'Observer'; } catch { /* fallback */ }
@@ -43,7 +51,8 @@ async function loadSettings() {
     serverUrl: stored?.serverUrl ?? '',
     groupCode: stored?.groupCode ?? '',
     displayName: stored?.displayName ?? defaultName,
-    hasAuthKey // Never send the stored secret back to the UI.
+    hasAuthKey, // Never send the stored secret back to the UI.
+    warning
   };
 }
 
@@ -51,14 +60,17 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
   if (saving) return { ok: false, message: 'Already saving settings.' };
   saving = true;
   try {
-    const oldKey = await keytar.getPassword(SERVICE, ACCOUNT);
-    const { data, errors } = validateSettings(input, oldKey !== null);
+    const { data, errors } = validateSettings(input, ALLOW_INSECURE_URL);
     if (!data || Object.keys(errors).length) return { ok: false, errors };
+
+    // A blank key means "no key" or "keep the stored key"; only read the
+    // credential store when the key is actually being replaced.
+    const replacingKey = data.authKey.length > 0;
+    const oldKey = replacingKey ? await keytar.getPassword(SERVICE, ACCOUNT) : null;
 
     const directory = app.getPath('userData');
     const file = settingsFile();
     const tempFile = `${file}.${process.pid}.tmp`;
-    const replacingKey = data.authKey.length > 0;
     let keyWasUpdated = false;
 
     try {
@@ -125,6 +137,11 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:save', (event, input: unknown) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
     return saveSettings(input);
+  });
+  ipcMain.handle('settings:clear-auth-key', async (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
+    if (saving) throw new Error('A settings save is in progress.');
+    await keytar.deletePassword(SERVICE, ACCOUNT);
   });
   createWindow();
 }).catch(console.error);
