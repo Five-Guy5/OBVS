@@ -1,0 +1,215 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { Session } = require('../dist/session.js');
+
+const config = {
+  serverUrl: 'https://example.test/ingest',
+  groupCode: 'group_1',
+  displayName: 'Observer',
+  authKey: 'secret'
+};
+
+const accepted = {
+  accepted: true,
+  matchSecret: 'match-secret',
+  capabilities: {
+    gep: true,
+    cv: { enabled: false, modelsLoaded: false },
+    fields: {}
+  }
+};
+
+class FakeSocket {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    this.sent = [];
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  emit(type, event = {}) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  send(data) {
+    this.sent.push(JSON.parse(data));
+  }
+
+  close() {
+    if (this.readyState === 3) return;
+    this.readyState = 3;
+    this.emit('close');
+  }
+
+  open() {
+    this.readyState = 1;
+    this.emit('open');
+  }
+
+  receive(value) {
+    this.emit('message', { data: JSON.stringify(value) });
+  }
+}
+
+function createSession() {
+  const sockets = [];
+  const changes = [];
+  const session = new Session({
+    clientVersion: '0.1.0',
+    createSocket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    },
+    onChange: (status) => changes.push(status)
+  });
+  session.setConfig(config);
+  return { session, sockets, changes };
+}
+
+function goLive(session, sockets) {
+  session.handleInfo('game_info', 'scene', 'CharacterSelectPersistentLevel');
+  const socket = sockets.at(-1);
+  socket.open();
+  socket.receive(accepted);
+  return socket;
+}
+
+test('ignores the main menu and practice range', () => {
+  const { session, sockets } = createSession();
+
+  session.handleInfo('game_info', 'scene', 'MainMenu');
+  session.handleInfo('game_info', 'scene', 'Range');
+
+  assert.equal(session.status.state, 'idle');
+  assert.equal(sockets.length, 0);
+});
+
+test('connects at agent select and logs on without a match secret', () => {
+  const { session, sockets, changes } = createSession();
+
+  session.handleInfo('game_info', 'scene', 'CharacterSelectPersistentLevel');
+  assert.equal(session.status.state, 'connecting');
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].url, 'wss://example.test/ingest');
+
+  sockets[0].open();
+  assert.deepEqual(sockets[0].sent[0], {
+    protocolVersion: 1,
+    groupCode: 'group_1',
+    observerName: 'Observer',
+    clientVersion: '0.1.0',
+    authKey: 'secret'
+  });
+
+  sockets[0].receive(accepted);
+  assert.equal(session.status.state, 'live');
+  assert.deepEqual(changes.map((status) => status.state), ['connecting', 'live']);
+});
+
+test('relays every GEP update with its capture timestamp', () => {
+  const { session, sockets } = createSession();
+  const socket = goLive(session, sockets);
+  const before = socket.sent.length;
+
+  session.handleInfo('match_info', 'round_number', '3');
+  session.handleInfo('match_info', 'round_phase', 'combat');
+  session.handleEvent('match_info', 'kill_feed', { attacker: 'Ace' });
+
+  const events = socket.sent.slice(before);
+  assert.ok(events.length >= 3);
+  assert.ok(events.every((event) => !Number.isNaN(Date.parse(event.capturedAt))));
+
+  const kill = events.find((event) => event.type === 'gep.raw' &&
+    event.payload.key === 'kill_feed');
+  assert.deepEqual(kill.payload.value, { attacker: 'Ace' });
+  assert.equal(kill.payload.timestamp, kill.capturedAt);
+
+  const round = events.find((event) => event.type === 'round');
+  assert.deepEqual(round.payload, { number: 3, phase: 'combat' });
+});
+
+test('stops at game_end and discards the match secret', () => {
+  const { session, sockets, changes } = createSession();
+  const socket = goLive(session, sockets);
+  const before = socket.sent.length;
+
+  session.handleInfo('match_info', 'round_phase', 'game_end');
+
+  assert.equal(session.status.state, 'idle');
+  assert.deepEqual(changes.map((status) => status.state).slice(-2), ['stopping', 'idle']);
+  assert.ok(socket.sent.slice(before).some((event) => event.type === 'match.end'));
+
+  session.connect();
+  const next = sockets.at(-1);
+  next.open();
+  assert.equal('matchSecret' in next.sent[0], false);
+});
+
+test('manual disconnect keeps the secret for a mid-match reconnect', () => {
+  const { session, sockets } = createSession();
+  goLive(session, sockets);
+
+  session.disconnect();
+  assert.equal(session.status.state, 'idle');
+
+  session.connect();
+  const next = sockets.at(-1);
+  next.open();
+  assert.equal(next.sent[0].matchSecret, 'match-secret');
+});
+
+test('manual disconnect suppresses the same match but not the next one', () => {
+  const { session, sockets } = createSession();
+  goLive(session, sockets);
+
+  session.disconnect();
+  const count = sockets.length;
+
+  session.handleInfo('game_info', 'scene', 'in_game');
+  assert.equal(session.status.state, 'idle');
+  assert.equal(sockets.length, count);
+
+  session.handleInfo('game_info', 'scene', 'MainMenu');
+  session.handleInfo('game_info', 'scene', 'CharacterSelectPersistentLevel');
+  assert.equal(session.status.state, 'connecting');
+  assert.equal(sockets.length, count + 1);
+
+  const next = sockets.at(-1);
+  next.open();
+  assert.equal('matchSecret' in next.sent[0], false);
+});
+
+test('a rejected logon shows the reason and stays disconnected', () => {
+  const { session, sockets } = createSession();
+
+  session.handleInfo('game_info', 'scene', 'CharacterSelectPersistentLevel');
+  const socket = sockets[0];
+  socket.open();
+  socket.receive({ accepted: false, reason: 'Auth key rejected.' });
+
+  assert.deepEqual(session.status, { state: 'idle', error: 'Auth key rejected.' });
+  assert.equal(socket.readyState, 3);
+});
+
+test('a manual connect without settings stays idle with an error', () => {
+  const session = new Session({
+    clientVersion: '0.1.0',
+    createSocket: () => {
+      throw new Error('should not create a socket');
+    }
+  });
+
+  session.connect();
+
+  assert.deepEqual(session.status, {
+    state: 'idle',
+    error: 'Save connection settings before connecting.'
+  });
+});
