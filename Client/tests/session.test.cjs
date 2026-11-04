@@ -57,11 +57,12 @@ class FakeSocket {
   }
 }
 
-function createSession() {
+function createSession(options = {}) {
   const sockets = [];
   const changes = [];
   const session = new Session({
     clientVersion: '0.1.0',
+    allowInsecure: options.allowInsecure ?? false,
     createSocket: (url) => {
       const socket = new FakeSocket(url);
       sockets.push(socket);
@@ -69,7 +70,7 @@ function createSession() {
     },
     onChange: (status) => changes.push(status)
   });
-  session.setConfig(config);
+  session.setConfig(options.config ?? config);
   return { session, sockets, changes };
 }
 
@@ -201,6 +202,7 @@ test('a rejected logon shows the reason and stays disconnected', () => {
 test('a manual connect without settings stays idle with an error', () => {
   const session = new Session({
     clientVersion: '0.1.0',
+    allowInsecure: false,
     createSocket: () => {
       throw new Error('should not create a socket');
     }
@@ -212,4 +214,77 @@ test('a manual connect without settings stays idle with an error', () => {
     state: 'idle',
     error: 'Save connection settings before connecting.'
   });
+});
+
+test('rejects non-TLS unless the dev flag allows a loopback host', () => {
+  const secureOnly = createSession({
+    config: { ...config, serverUrl: 'http://127.0.0.1:3000' }
+  });
+  secureOnly.session.connect();
+  assert.equal(secureOnly.session.status.state, 'idle');
+  assert.match(secureOnly.session.status.error, /HTTPS or WSS/);
+  assert.equal(secureOnly.sockets.length, 0);
+
+  const insecure = createSession({
+    allowInsecure: true,
+    config: { ...config, serverUrl: 'http://127.0.0.1:3000' }
+  });
+  insecure.session.connect();
+  assert.equal(insecure.session.status.state, 'connecting');
+  assert.equal(insecure.sockets[0].url, 'ws://127.0.0.1:3000/');
+});
+
+test('an automatic session stops when the game returns to the menu', () => {
+  const { session, sockets } = createSession();
+  goLive(session, sockets);
+
+  session.handleInfo('game_info', 'scene', 'MainMenu');
+
+  assert.equal(session.status.state, 'idle');
+  assert.equal(sockets[0].readyState, 3);
+});
+
+test('a manual session stays live in the menu', () => {
+  const { session, sockets } = createSession();
+
+  session.connect();
+  const socket = sockets[0];
+  socket.open();
+  socket.receive(accepted);
+  session.handleInfo('game_info', 'scene', 'MainMenu');
+
+  assert.equal(session.status.state, 'live');
+  assert.equal(socket.readyState, 1);
+});
+
+test('a match_start does not connect while in the practice range', () => {
+  const { session, sockets } = createSession();
+
+  session.handleInfo('game_info', 'scene', 'Range');
+  session.handleEvent('match_info', 'match_start', null);
+
+  assert.equal(session.status.state, 'idle');
+  assert.equal(sockets.length, 0);
+});
+
+test('does not reuse a previous round after a new match', () => {
+  const { session, sockets } = createSession();
+  goLive(session, sockets);
+  session.handleInfo('match_info', 'round_number', '5');
+  session.handleInfo('match_info', 'round_phase', 'game_end');
+  assert.equal(session.status.state, 'idle');
+
+  session.handleInfo('game_info', 'scene', 'MainMenu');
+  session.handleInfo('game_info', 'scene', 'CharacterSelectPersistentLevel');
+  const next = sockets.at(-1);
+  next.open();
+  next.receive(accepted);
+  const before = next.sent.length;
+
+  session.handleInfo('match_info', 'round_number', '1');
+  assert.equal(next.sent.slice(before).some((event) => event.type === 'round'), false);
+
+  session.handleInfo('match_info', 'round_phase', 'shopping');
+  const round = next.sent.slice(before).find((event) => event.type === 'round');
+  assert.deepEqual(round.payload, { number: 1, phase: 'shopping' });
 });

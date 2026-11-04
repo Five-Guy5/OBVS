@@ -226,6 +226,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   session = new Session({
     clientVersion: app.getVersion(),
+    allowInsecure: ALLOW_INSECURE_URL,
     createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     onChange: publishStatus
   });

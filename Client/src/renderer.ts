@@ -1,25 +1,27 @@
 
+import type { SessionState, SessionStatus } from './session';
+
 type Field = 'serverUrl' | 'groupCode' | 'displayName' | 'authKey';
 type SettingsInput = Record<Field, string>;
 type FieldErrors = Partial<Record<Field, string>>;
-type SessionState = 'idle' | 'connecting' | 'live' | 'stopping';
-type SessionStatus = { state: SessionState; error: string | null };
 
-interface Window {
-  obvs: {
-    loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & {
-      hasAuthKey: boolean;
-      warning?: string;
-    }>;
-    saveSettings(values: SettingsInput): Promise<
-      { ok: true } | { ok: false; errors?: FieldErrors; message?: string }
-    >;
-    clearAuthKey(): Promise<void>;
-    getSessionStatus(): Promise<SessionStatus>;
-    connect(): Promise<SessionStatus>;
-    disconnect(): Promise<SessionStatus>;
-    onSessionStatus(callback: (status: SessionStatus) => void): void;
-  };
+declare global {
+  interface Window {
+    obvs: {
+      loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & {
+        hasAuthKey: boolean;
+        warning?: string;
+      }>;
+      saveSettings(values: SettingsInput): Promise<
+        { ok: true } | { ok: false; errors?: FieldErrors; message?: string }
+      >;
+      clearAuthKey(): Promise<void>;
+      getSessionStatus(): Promise<SessionStatus>;
+      connect(): Promise<SessionStatus>;
+      disconnect(): Promise<SessionStatus>;
+      onSessionStatus(callback: (status: SessionStatus) => void): void;
+    };
+  }
 }
 
 const form = document.querySelector<HTMLFormElement>('#settings-form')!;
@@ -32,24 +34,17 @@ const disconnectButton = document.querySelector<HTMLButtonElement>('#disconnect'
 const sessionIcon = document.querySelector<HTMLElement>('#session-icon')!;
 const sessionStatus = document.querySelector<HTMLElement>('#session-status')!;
 
-const STATUS_TEXT: Record<SessionState, string> = {
-  idle: 'Idle',
-  connecting: 'Connecting…',
-  live: 'Live',
-  stopping: 'Stopping…'
-};
-const STATUS_ICON: Record<SessionState, string> = {
-  idle: '○',
-  connecting: '◌',
-  live: '●',
-  stopping: '■'
+const SESSION_DISPLAY: Record<SessionState, { text: string; icon: string }> = {
+  idle: { text: 'Idle', icon: '○' },
+  connecting: { text: 'Connecting…', icon: '◌' },
+  live: { text: 'Live', icon: '●' },
+  stopping: { text: 'Stopping…', icon: '■' }
 };
 
 function renderSessionStatus(status: SessionStatus): void {
-  sessionIcon.textContent = status.error ? '⚠' : STATUS_ICON[status.state];
-  sessionStatus.textContent = status.error
-    ? `Idle — ${status.error}`
-    : STATUS_TEXT[status.state];
+  const display = SESSION_DISPLAY[status.state];
+  sessionIcon.textContent = status.error ? '⚠' : display.icon;
+  sessionStatus.textContent = status.error ? `Idle — ${status.error}` : display.text;
   connectButton.disabled = status.state !== 'idle';
   disconnectButton.disabled = status.state === 'idle' || status.state === 'stopping';
 }
@@ -150,34 +145,30 @@ clearKeyButton.addEventListener('click', async () => {
   }
 });
 
-connectButton.addEventListener('click', async () => {
-  connectButton.disabled = true;
+async function runSessionAction(
+  action: () => Promise<SessionStatus>,
+  button: HTMLButtonElement
+): Promise<void> {
+  button.disabled = true;
   statusMessage.textContent = '';
   try {
-    renderSessionStatus(await window.obvs.connect());
+    renderSessionStatus(await action());
   } catch {
     statusMessage.textContent = 'Could not change the session state.';
     try {
       renderSessionStatus(await window.obvs.getSessionStatus());
     } catch {
-      connectButton.disabled = false;
+      button.disabled = false;
     }
   }
+}
+
+connectButton.addEventListener('click', () => {
+  void runSessionAction(() => window.obvs.connect(), connectButton);
 });
 
-disconnectButton.addEventListener('click', async () => {
-  disconnectButton.disabled = true;
-  statusMessage.textContent = '';
-  try {
-    renderSessionStatus(await window.obvs.disconnect());
-  } catch {
-    statusMessage.textContent = 'Could not change the session state.';
-    try {
-      renderSessionStatus(await window.obvs.getSessionStatus());
-    } catch {
-      disconnectButton.disabled = false;
-    }
-  }
+disconnectButton.addEventListener('click', () => {
+  void runSessionAction(() => window.obvs.disconnect(), disconnectButton);
 });
 
 void initialize();

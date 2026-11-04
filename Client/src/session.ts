@@ -8,8 +8,10 @@ import type {
   RoundPhase,
   Scene,
 } from '@obvs/protocol';
+import { isLoopbackHost } from './settings';
 
-// Protocol v1 is the only schema this Client speaks; keep in step with Protocol/src/version.ts.
+// The Electron main runs as CommonJS and @obvs/protocol ships ESM-only, so the
+// numeric wire version is mirrored here; all event and logon shapes are imported.
 const PROTOCOL_VERSION = 1 as IngestEvent['protocolVersion'];
 const MAX_CONNECTING_EVENTS = 500;
 const OPEN = 1;
@@ -37,6 +39,7 @@ export interface SocketLike {
 
 export interface SessionOptions {
   clientVersion: string;
+  allowInsecure: boolean;
   createSocket: (url: string) => SocketLike;
   onChange?: (status: SessionStatus) => void;
 }
@@ -55,6 +58,7 @@ export class Session {
   #matchSecret: string | null = null;
   #pending: IngestEvent[] = [];
   #suppressAuto = false;
+  #auto = false;
   #lastScene: Scene | null = null;
   #roundNumber: number | null = null;
   #roundPhase: RoundPhase | null = null;
@@ -75,6 +79,7 @@ export class Session {
   /** Manual Connect: keep any in-memory Match Secret so a mid-match reconnect resumes. */
   connect(): void {
     this.#suppressAuto = false;
+    this.#auto = false;
     this.#connect();
   }
 
@@ -111,9 +116,11 @@ export class Session {
 
     let url: string;
     try {
-      url = toWebSocketUrl(config.serverUrl);
-    } catch {
-      this.#update('idle', 'The server URL is not valid.');
+      url = toWebSocketUrl(config.serverUrl, this.#options.allowInsecure);
+    } catch (error) {
+      this.#update('idle', error instanceof Error
+        ? error.message
+        : 'The server URL is not valid.');
       return;
     }
 
@@ -234,20 +241,32 @@ export class Session {
 
     if (scene === 'main_menu' || scene === 'practice_range') {
       this.#suppressAuto = false;
+      const wasAuto = this.#auto;
+      this.#auto = false;
+      if (wasAuto && (this.#state === 'connecting' || this.#state === 'live')) {
+        this.#stop();
+      }
       return;
     }
     if (this.#state !== 'idle' || this.#suppressAuto) return;
 
-    // A transition into a match scene starts a new Match; drop any old secret.
+    // A transition into a match scene starts a new Match; drop any old secret and round.
     if (previous === null || previous === 'main_menu' || previous === 'practice_range') {
       this.#matchSecret = null;
+      this.#roundNumber = null;
+      this.#roundPhase = null;
     }
+    this.#auto = true;
     this.#connect();
   }
 
   #onMatchStart(): void {
     if (this.#state !== 'idle' || this.#suppressAuto) return;
+    if (this.#lastScene === 'main_menu' || this.#lastScene === 'practice_range') return;
     this.#matchSecret = null;
+    this.#roundNumber = null;
+    this.#roundPhase = null;
+    this.#auto = true;
     this.#connect();
   }
 
@@ -289,6 +308,9 @@ export class Session {
     this.#ended = true;
     this.#pending.length = 0;
     this.#suppressAuto = false;
+    this.#auto = false;
+    this.#roundNumber = null;
+    this.#roundPhase = null;
 
     if (this.#state === 'idle' || this.#state === 'stopping') {
       this.#update('idle', null);
@@ -346,13 +368,27 @@ function parseLogonResponse(data: unknown): LogonResponse | null {
   }
 }
 
-function toWebSocketUrl(serverUrl: string): string {
-  const url = new URL(serverUrl);
-  if (url.protocol === 'https:') url.protocol = 'wss:';
-  else if (url.protocol === 'http:') url.protocol = 'ws:';
-  else if (url.protocol !== 'wss:' && url.protocol !== 'ws:') {
-    throw new Error('Unsupported server URL protocol.');
+function toWebSocketUrl(serverUrl: string, allowInsecure: boolean): string {
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    throw new Error('The server URL is not valid.');
   }
+
+  if (url.protocol === 'https:') {
+    url.protocol = 'wss:';
+  } else if (url.protocol === 'http:' || url.protocol === 'ws:') {
+    if (!allowInsecure || !isLoopbackHost(url.hostname)) {
+      throw new Error(
+        'Use HTTPS or WSS. Non-TLS is only allowed for localhost in development.',
+      );
+    }
+    url.protocol = 'ws:';
+  } else if (url.protocol !== 'wss:') {
+    throw new Error('Use an HTTPS or WSS URL.');
+  }
+
   return url.toString();
 }
 

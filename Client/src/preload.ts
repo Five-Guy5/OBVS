@@ -1,4 +1,6 @@
 
+import type { SessionStatus } from './session';
+
 const { contextBridge, ipcRenderer } =
   require('electron') as typeof import('electron');
 
@@ -7,11 +9,6 @@ type PreloadSettingsInput = {
   groupCode: string;
   displayName: string;
   authKey: string;
-};
-
-type PreloadSessionStatus = {
-  state: 'idle' | 'connecting' | 'live' | 'stopping';
-  error: string | null;
 };
 
 contextBridge.exposeInMainWorld('obvs', {
@@ -28,7 +25,7 @@ contextBridge.exposeInMainWorld('obvs', {
 
   disconnect: () => ipcRenderer.invoke('session:disconnect'),
 
-  onSessionStatus: (callback: (status: PreloadSessionStatus) => void) => {
-    ipcRenderer.on('session:status', (_event, status: PreloadSessionStatus) => callback(status));
+  onSessionStatus: (callback: (status: SessionStatus) => void) => {
+    ipcRenderer.on('session:status', (_event, status: SessionStatus) => callback(status));
   }
 });
