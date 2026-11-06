@@ -6,7 +6,7 @@ export type LogonParseResult =
   | { ok: true; request: LogonRequest }
   | { ok: false; reason: string };
 
-const GROUP_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const GROUP_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
 const MAX_TEXT_LENGTH = 64;
 const MAX_AUTH_KEY_LENGTH = 1024;
