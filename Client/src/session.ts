@@ -67,6 +67,7 @@ export class Session {
   #pending: IngestEvent[] = [];
   #suppressAuto = false;
   #auto = false;
+  #autoPending = false;
   #lastScene: Scene | null = null;
   #roundNumber: number | null = null;
   #roundPhase: RoundPhase | null = null;
@@ -82,18 +83,24 @@ export class Session {
 
   setConfig(config: SessionConfig | null): void {
     this.#config = config;
+    // Settings may load after GEP already reported agent select/match start.
+    if (config && this.#autoPending && this.#state === 'idle' && !this.#suppressAuto) {
+      this.#connect();
+    }
   }
 
   /** Manual Connect: keep any in-memory Match Secret so a mid-match reconnect resumes. */
   connect(): void {
     this.#suppressAuto = false;
     this.#auto = false;
+    this.#autoPending = false;
     this.#connect();
   }
 
   /** Manual Disconnect: suppress automatic triggers until the next match begins. */
   disconnect(): void {
     this.#suppressAuto = true;
+    this.#autoPending = false;
     this.#pending.length = 0;
     if (this.#state === 'idle') {
       this.#update('idle', null);
@@ -136,6 +143,7 @@ export class Session {
       return;
     }
 
+    this.#autoPending = false;
     this.#update('connecting', null);
     this.#ended = false;
 
@@ -253,6 +261,7 @@ export class Session {
 
     if (scene === 'main_menu' || scene === 'practice_range') {
       this.#suppressAuto = false;
+      this.#autoPending = false;
       const wasAuto = this.#auto;
       this.#auto = false;
       if (wasAuto && (this.#state === 'connecting' || this.#state === 'live')) {
@@ -269,6 +278,7 @@ export class Session {
       this.#roundPhase = null;
     }
     this.#auto = true;
+    this.#autoPending = true;
     this.#connect();
   }
 
@@ -279,6 +289,7 @@ export class Session {
     this.#roundNumber = null;
     this.#roundPhase = null;
     this.#auto = true;
+    this.#autoPending = true;
     this.#connect();
   }
 
@@ -321,6 +332,7 @@ export class Session {
     this.#pending.length = 0;
     this.#suppressAuto = false;
     this.#auto = false;
+    this.#autoPending = false;
     this.#roundNumber = null;
     this.#roundPhase = null;
 

@@ -20,9 +20,19 @@ const ALLOW_INSECURE_URL = !app.isPackaged && process.env.OBVS_ALLOW_INSECURE_UR
 const VALORANT_GAME_ID = 21640; // kGepSupportedGameIds.VALORANT
 const GEP_FEATURES = ['match_info', 'me', 'game_info', 'kill', 'death'];
 let mainWindow: BrowserWindow | null = null;
-let session: Session | null = null;
 let saving = false;
+let gepListening = false;
 let gepAttached = false;
+
+const session = new Session({
+  clientVersion: app.getVersion(),
+  allowInsecure: ALLOW_INSECURE_URL,
+  createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
+  onChange: publishStatus
+});
+
+// Register before app readiness so Valorant is detected if it is already running.
+setupGep();
 
 interface GepLaunchEvent {
   enable(): void;
@@ -89,7 +99,6 @@ async function loadConnectionConfig(): Promise<SessionConfig | null> {
 }
 
 async function refreshSessionConfig(): Promise<void> {
-  if (!session) return;
   try {
     session.setConfig(await loadConnectionConfig());
   } catch {
@@ -104,11 +113,10 @@ function publishStatus(status: SessionStatus): void {
 }
 
 function setupGep(): void {
+  if (gepListening) return;
   const packages = app.overwolf?.packages;
-  if (!packages) {
-    console.warn('[gep] Overwolf package manager is unavailable.');
-    return;
-  }
+  if (!packages) return;
+  gepListening = true;
   packages.on('ready', (_event, name) => {
     if (name === 'gep') attachGep();
   });
@@ -124,17 +132,18 @@ function attachGep(): void {
   gep.on('game-detected', (event, gameId) => {
     if (gameId !== VALORANT_GAME_ID) return;
     event.enable();
+    console.log(`[gep] Valorant detected (${gameId}); requesting features.`);
     gep.setRequiredFeatures(gameId, GEP_FEATURES).catch((error: unknown) => {
       console.error(`[gep] could not set required features: ${String(error)}`);
     });
   });
   gep.on('new-info-update', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session?.handleInfo(data);
+    session.handleInfo(data);
   });
   gep.on('new-game-event', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session?.handleEvent(data);
+    session.handleEvent(data);
   });
   gep.on('error', (_event, gameId, error) => {
     console.error(`[gep] game ${gameId}: ${error}`);
@@ -212,19 +221,16 @@ function createWindow(): void {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.on('did-finish-load', () => {
-    win.webContents.send('session:status', session?.status ?? { state: 'idle', error: null });
+    win.webContents.send('session:status', session.status);
   });
   void win.loadFile(join(__dirname, '../index.html'));
   win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 }
 
 app.whenReady().then(async () => {
-  session = new Session({
-    clientVersion: app.getVersion(),
-    allowInsecure: ALLOW_INSECURE_URL,
-    createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
-    onChange: publishStatus
-  });
+  // Retry if the Overwolf package manager was not exposed at module load.
+  setupGep();
+  if (!gepListening) console.warn('[gep] Overwolf package manager is unavailable.');
   await refreshSessionConfig();
 
   ipcMain.handle('settings:load', (event) => {
@@ -243,21 +249,20 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('session:status', (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
-    return session!.status;
+    return session.status;
   });
   ipcMain.handle('session:connect', (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
-    session!.connect();
-    return session!.status;
+    session.connect();
+    return session.status;
   });
   ipcMain.handle('session:disconnect', (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
-    session!.disconnect();
-    return session!.status;
+    session.disconnect();
+    return session.status;
   });
 
   createWindow();
-  setupGep();
 }).catch(console.error);
 
 app.on('activate', () => {

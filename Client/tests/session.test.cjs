@@ -240,6 +240,49 @@ test('a manual connect without settings stays idle with an error', () => {
   });
 });
 
+test('connects when settings arrive after an automatic trigger', () => {
+  const sockets = [];
+  const session = new Session({
+    clientVersion: '0.1.0',
+    allowInsecure: false,
+    createSocket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    }
+  });
+
+  session.handleInfo({ feature: 'game_info', key: 'scene', value: 'CharacterSelectPersistentLevel' });
+  assert.equal(session.status.state, 'idle');
+  assert.match(session.status.error, /settings/i);
+
+  session.setConfig(config);
+
+  assert.equal(session.status.state, 'connecting');
+  assert.equal(sockets.length, 1);
+});
+
+test('does not auto-connect when settings arrive after a manual attempt', () => {
+  const sockets = [];
+  const session = new Session({
+    clientVersion: '0.1.0',
+    allowInsecure: false,
+    createSocket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    }
+  });
+
+  session.connect();
+  assert.equal(session.status.state, 'idle');
+
+  session.setConfig(config);
+
+  assert.equal(session.status.state, 'idle');
+  assert.equal(sockets.length, 0);
+});
+
 test('rejects non-TLS unless the dev flag allows a loopback host', () => {
   const secureOnly = createSession({
     config: { ...config, serverUrl: 'http://127.0.0.1:3000' }
