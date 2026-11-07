@@ -30,6 +30,14 @@ export interface SessionConfig {
   authKey: string;
 }
 
+export interface GepUpdate {
+  feature: string;
+  key: string;
+  value: unknown;
+  /** Native GEP payloads may carry `data` instead of `value`. */
+  data?: unknown;
+}
+
 export interface SocketLike {
   readonly readyState: number;
   addEventListener(type: string, listener: (event: any) => void): void;
@@ -97,12 +105,16 @@ export class Session {
     }
   }
 
-  handleInfo(feature: string, key: string, value: unknown): void {
-    this.#handleGep('info', feature, key, value);
+  handleInfo(update: GepUpdate): void {
+    // Only substitute when `value` is entirely absent; null is a real payload
+    // (e.g. match_start, spike_defused/detonated fire with no data).
+    const value = update.value === undefined ? update.data : update.value;
+    this.#handleGep('info', update.feature, update.key, value);
   }
 
-  handleEvent(feature: string, key: string, value: unknown): void {
-    this.#handleGep('event', feature, key, value);
+  handleEvent(update: GepUpdate): void {
+    const value = update.value === undefined ? update.data : update.value;
+    this.#handleGep('event', update.feature, update.key, value);
   }
 
   #connect(): void {

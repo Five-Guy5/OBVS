@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   Session,
+  type GepUpdate,
   type SessionConfig,
   type SessionStatus,
   type SocketLike,
@@ -16,18 +17,12 @@ const SERVICE = 'io.obvs.client';
 const ACCOUNT = 'server-auth-key';
 // Non-TLS is a local-development escape hatch, never available in packaged builds.
 const ALLOW_INSECURE_URL = !app.isPackaged && process.env.OBVS_ALLOW_INSECURE_URL === '1';
-const VALORANT_GAME_ID = 21610;
+const VALORANT_GAME_ID = 21640; // kGepSupportedGameIds.VALORANT
 const GEP_FEATURES = ['match_info', 'me', 'game_info', 'kill', 'death'];
 let mainWindow: BrowserWindow | null = null;
 let session: Session | null = null;
 let saving = false;
 let gepAttached = false;
-
-interface GepInfo {
-  feature: string;
-  key: string;
-  value: unknown;
-}
 
 interface GepLaunchEvent {
   enable(): void;
@@ -36,9 +31,9 @@ interface GepLaunchEvent {
 interface GepApi {
   on(event: 'game-detected', listener: (event: GepLaunchEvent, gameId: number) => void): void;
   on(event: 'new-info-update',
-    listener: (event: unknown, gameId: number, data: GepInfo) => void): void;
+    listener: (event: unknown, gameId: number, data: GepUpdate) => void): void;
   on(event: 'new-game-event',
-    listener: (event: unknown, gameId: number, data: GepInfo) => void): void;
+    listener: (event: unknown, gameId: number, data: GepUpdate) => void): void;
   on(event: 'error', listener: (event: unknown, gameId: number, error: string) => void): void;
   setRequiredFeatures(gameId: number, features: string[] | undefined): Promise<void>;
 }
@@ -135,11 +130,11 @@ function attachGep(): void {
   });
   gep.on('new-info-update', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session?.handleInfo(data.feature, data.key, data.value);
+    session?.handleInfo(data);
   });
   gep.on('new-game-event', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session?.handleEvent(data.feature, data.key, data.value);
+    session?.handleEvent(data);
   });
   gep.on('error', (_event, gameId, error) => {
     console.error(`[gep] game ${gameId}: ${error}`);
