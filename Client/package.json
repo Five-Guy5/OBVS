@@ -1,0 +1,28 @@
+{
+  "name": "@obvs/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "productName": "OBVS Client",
+  "author": {
+    "name": "Five-Guy5"
+  },
+  "overwolf": {
+    "packages": []
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.cjs",
+    "start": "ow-electron .",
+    "dev": "npm run build && npm run start"
+  },
+  "dependencies": {
+    "keytar": "7.9.0"
+  },
+  "devDependencies": {
+    "@overwolf/ow-electron": "44.9.0",
+    "electron": "^44.9.0"
+  }
+}
