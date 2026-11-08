@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 620" role="img" aria-labelledby="title desc">
+  <title id="title">OBVS session lifecycle</title>
+  <desc id="desc">The OBVS client session moves from idle to connecting to live to stopping and back to idle. Agent select or manual Connect starts a session; game end, match end, or manual Disconnect stops it. Rejections and connection losses return to idle with a text error.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #ffffff; }
+    .title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 26px; font-weight: 700; }
+    .subtitle { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 15px; }
+    .state { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 18px; font-weight: 700; }
+    .state-sub { fill: #334155; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .label { fill: #334155; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .label-fail { fill: #b91c1c; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .note { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
+    .arrow { stroke: #334155; stroke-width: 2; fill: none; }
+    .arrow-fail { stroke: #b91c1c; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1240" height="620" rx="12"/>
+  <text class="title" x="40" y="48">OBVS session lifecycle</text>
+  <text class="subtitle" x="40" y="76">Automatic by default; manual Connect and Disconnect are exceptional overrides.</text>
+
+  <!-- States -->
+  <rect x="60" y="210" width="190" height="96" rx="14" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2"/>
+  <text class="state" x="82" y="252">○ Idle</text>
+  <text class="state-sub" x="82" y="278">No socket open</text>
+
+  <rect x="350" y="210" width="210" height="96" rx="14" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+  <text class="state" x="372" y="252">◌ Connecting</text>
+  <text class="state-sub" x="372" y="278">Logon sent, awaiting reply</text>
+
+  <rect x="670" y="210" width="190" height="96" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text class="state" x="692" y="252">● Live</text>
+  <text class="state-sub" x="692" y="278">Events relayed</text>
+
+  <rect x="970" y="210" width="190" height="96" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text class="state" x="992" y="252">■ Stopping</text>
+  <text class="state-sub" x="992" y="278">Closing the socket</text>
+
+  <!-- Main transitions -->
+  <line class="arrow" x1="250" y1="258" x2="348" y2="258" marker-end="url(#arrow)"/>
+  <text class="label" x="258" y="150">scene agent_select / map</text>
+  <text class="label" x="258" y="167">or manual Connect</text>
+
+  <line class="arrow" x1="560" y1="258" x2="668" y2="258" marker-end="url(#arrow)"/>
+  <text class="label" x="572" y="150">logon accepted</text>
+  <text class="label" x="572" y="167">Match Secret issued</text>
+
+  <line class="arrow" x1="860" y1="258" x2="968" y2="258" marker-end="url(#arrow)"/>
+  <text class="label" x="872" y="150">game_end / match_end</text>
+  <text class="label" x="872" y="167">manual Disconnect</text>
+  <text class="label" x="872" y="184">or leave match</text>
+
+  <path class="arrow" d="M 1065 306 C 1065 400, 155 400, 155 308" marker-end="url(#arrow)"/>
+  <text class="label" x="540" y="394">socket closed</text>
+
+  <!-- Failure paths -->
+  <path class="arrow-fail" d="M 455 306 C 455 470, 155 470, 155 308" marker-end="url(#arrow-fail)"/>
+  <text class="label-fail" x="500" y="456">rejected / unreachable</text>
+
+  <!-- Notes -->
+  <text class="note" x="40" y="532">Status is shown as text + icon (Idle, Connecting…, Live, Stopping…, or an error), never color alone.</text>
+  <text class="note" x="40" y="556">The Match Secret is kept in memory for a manual mid-match reconnect and discarded at game end.</text>
+  <text class="note" x="40" y="580">A connection loss from Live returns to Idle with a visible error; the observer can manually Connect again.</text>
+</svg>

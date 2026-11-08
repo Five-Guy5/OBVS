@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 880" role="img" aria-labelledby="title desc">
+  <title id="title">OBVS visual walkthrough</title>
+  <desc id="desc">Four-step UX flow: configure the client, agent select auto-connect, live OBS overlay, and automatic stop at game end.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #ffffff; }
+    .title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 26px; font-weight: 700; }
+    .subtitle { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 15px; }
+    .step { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 17px; font-weight: 700; }
+    .caption { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .ui-title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; font-weight: 700; }
+    .ui-label { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; }
+    .ui-value { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; }
+    .status { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: 700; }
+    .small { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; }
+    .overlay-title { fill: #e2e8f0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: 700; }
+    .overlay-text { fill: #cbd5e1; font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; }
+    .arrow { stroke: #334155; stroke-width: 2; fill: none; }
+    .note { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1400" height="880" rx="12"/>
+  <text class="title" x="30" y="48">OBVS visual walkthrough</text>
+  <text class="subtitle" x="30" y="76">Observer workflow from configuration to the OBS overlay and automatic stop.</text>
+
+  <!-- Panel 1 -->
+  <rect x="30" y="110" width="300" height="670" rx="16" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="step" x="50" y="148">1 · Configure</text>
+  <rect x="50" y="170" width="260" height="560" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <rect x="50" y="170" width="260" height="32" rx="10" fill="#e2e8f0"/>
+  <text class="ui-title" x="64" y="191">OBVS Client Settings</text>
+  <text class="ui-label" x="64" y="226">MATCH SESSION</text>
+  <text class="status" x="64" y="248">○ Idle</text>
+  <rect x="64" y="262" width="70" height="24" rx="6" fill="#2563eb"/>
+  <text class="ui-value" x="82" y="278" fill="#ffffff">Connect</text>
+  <rect x="142" y="262" width="78" height="24" rx="6" fill="#e2e8f0"/>
+  <text class="ui-value" x="157" y="278">Disconnect</text>
+  <text class="ui-label" x="64" y="316">Server URL</text>
+  <rect x="64" y="324" width="232" height="28" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="ui-value" x="74" y="343">https://obs.example.com</text>
+  <text class="ui-label" x="64" y="376">Group code</text>
+  <rect x="64" y="384" width="232" height="28" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="ui-value" x="74" y="403">demo-group</text>
+  <text class="ui-label" x="64" y="436">Display name</text>
+  <rect x="64" y="444" width="232" height="28" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="ui-value" x="74" y="463">Observer</text>
+  <text class="ui-label" x="64" y="496">Auth key (optional)</text>
+  <rect x="64" y="504" width="232" height="28" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="ui-value" x="74" y="523">••••••••</text>
+  <rect x="64" y="554" width="104" height="28" rx="6" fill="#16a34a"/>
+  <text class="ui-value" x="80" y="573" fill="#ffffff">Save settings</text>
+  <text class="small" x="64" y="606">Settings saved.</text>
+  <text class="small" x="64" y="632">Status uses text + icon,</text>
+  <text class="small" x="64" y="648">never color alone.</text>
+  <text class="caption" x="50" y="748">Observer enters the server URL,</text>
+  <text class="caption" x="50" y="766">group code, and display name.</text>
+
+  <!-- Panel 2 -->
+  <rect x="365" y="110" width="300" height="670" rx="16" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="step" x="385" y="148">2 · Agent select</text>
+  <rect x="385" y="170" width="260" height="180" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text class="ui-title" x="400" y="196">Valorant spectator client</text>
+  <rect x="400" y="210" width="230" height="92" rx="8" fill="#e2e8f0"/>
+  <text class="ui-value" x="414" y="234">AGENT SELECT</text>
+  <text class="small" x="414" y="254">Observer's POV</text>
+  <text class="small" x="414" y="274">GEP scene detected</text>
+  <text class="small" x="400" y="330">No Observer action needed.</text>
+  <line class="arrow" x1="515" y1="350" x2="515" y2="392" marker-end="url(#arrow)"/>
+  <rect x="385" y="394" width="260" height="158" rx="10" fill="#dcfce7" stroke="#4ade80"/>
+  <text class="ui-title" x="400" y="420">OBVS Client</text>
+  <text class="status" x="400" y="446">◌ Connecting…</text>
+  <text class="status" x="400" y="468">● Live</text>
+  <text class="small" x="400" y="492">Logon accepted</text>
+  <text class="small" x="400" y="508">Match Secret stored</text>
+  <text class="small" x="400" y="524">Events relayed</text>
+  <text class="caption" x="385" y="610">The GEP scene at agent select</text>
+  <text class="caption" x="385" y="628">starts the session automatically.</text>
+  <text class="caption" x="385" y="646">Manual Connect is available.</text>
+
+  <!-- Panel 3 -->
+  <rect x="700" y="110" width="300" height="670" rx="16" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="step" x="720" y="148">3 · Live overlay</text>
+  <rect x="720" y="170" width="260" height="470" rx="10" fill="#0b1220" stroke="#334155"/>
+  <text class="overlay-title" x="740" y="198">TEAM A</text>
+  <text class="overlay-title" x="900" y="198">TEAM B</text>
+  <text class="overlay-text" x="820" y="198" font-size="14" fill="#f8fafc">7 : 5</text>
+  <text class="overlay-text" x="820" y="220" fill="#94a3b8">ROUND 12 · COMBAT</text>
+  <rect x="740" y="238" width="220" height="1" fill="#334155"/>
+  <text class="overlay-text" x="740" y="262">PLAYER 1  ·  JETT</text>
+  <text class="overlay-text" x="890" y="262">PLAYER 6  ·  SOVA</text>
+  <text class="overlay-text" x="740" y="286">PLAYER 2  ·  SOVA</text>
+  <text class="overlay-text" x="890" y="286">PLAYER 7  ·  OMEN</text>
+  <text class="overlay-text" x="740" y="310">PLAYER 3  ·  OMEN</text>
+  <text class="overlay-text" x="890" y="310">PLAYER 8  ·  JETT</text>
+  <text class="overlay-text" x="740" y="334">PLAYER 4  ·  CYPHER</text>
+  <text class="overlay-text" x="890" y="334">PLAYER 9  ·  RAZE</text>
+  <text class="overlay-text" x="740" y="358">PLAYER 5  ·  RAZE</text>
+  <text class="overlay-text" x="890" y="358">P10 · CYPHER</text>
+  <rect x="740" y="385" width="220" height="1" fill="#334155"/>
+  <text class="overlay-text" x="740" y="412">OBSERVING: PLAYER 1 · JETT</text>
+  <text class="overlay-text" x="740" y="436">HEALTH 100 · CREDITS 3900</text>
+  <text class="overlay-text" x="740" y="460">PRIMARY: VANDAL</text>
+  <text class="overlay-text" x="740" y="500" fill="#64748b">OBS browser source · no live spike timer</text>
+  <text class="caption" x="720" y="690">Score, round, players, economy,</text>
+  <text class="caption" x="720" y="708">and observed player are rendered</text>
+  <text class="caption" x="720" y="726">by the Frontend.</text>
+
+  <!-- Panel 4 -->
+  <rect x="1035" y="110" width="300" height="670" rx="16" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="step" x="1055" y="148">4 · Game end</text>
+  <rect x="1055" y="170" width="260" height="330" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <rect x="1055" y="170" width="260" height="32" rx="10" fill="#e2e8f0"/>
+  <text class="ui-title" x="1069" y="191">OBVS Client Settings</text>
+  <text class="ui-label" x="1069" y="226">MATCH SESSION</text>
+  <text class="status" x="1069" y="250">■ Stopping…</text>
+  <text class="status" x="1069" y="274">○ Idle</text>
+  <text class="small" x="1069" y="300">round_phase = game_end</text>
+  <text class="small" x="1069" y="316">Match Secret discarded</text>
+  <text class="small" x="1069" y="332">Socket closed</text>
+  <rect x="1069" y="356" width="70" height="24" rx="6" fill="#2563eb"/>
+  <text class="ui-value" x="1087" y="372" fill="#ffffff">Connect</text>
+  <rect x="1147" y="356" width="78" height="24" rx="6" fill="#e2e8f0"/>
+  <text class="ui-value" x="1162" y="372">Disconnect</text>
+  <text class="caption" x="1055" y="560">The session stops automatically</text>
+  <text class="caption" x="1055" y="578">at game end and returns to idle.</text>
+  <text class="caption" x="1055" y="596">No Observer action is required</text>
+  <text class="caption" x="1055" y="614">during a normal match.</text>
+
+  <!-- Flow arrows -->
+  <line class="arrow" x1="330" y1="450" x2="363" y2="450" marker-end="url(#arrow)"/>
+  <line class="arrow" x1="665" y1="450" x2="698" y2="450" marker-end="url(#arrow)"/>
+  <line class="arrow" x1="1000" y1="450" x2="1033" y2="450" marker-end="url(#arrow)"/>
+
+  <text class="note" x="30" y="820">Planned UX / UI mockup. Not a live screenshot. Architecture and session lifecycle are implemented; overlay pages are in development.</text>
+</svg>

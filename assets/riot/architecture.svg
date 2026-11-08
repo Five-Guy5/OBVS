@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 680" role="img" aria-labelledby="title desc">
+  <title id="title">OBVS architecture</title>
+  <desc id="desc">The observer PC runs the Valorant spectator client, Overwolf GEP, and the OBVS Client. The Client relays spectator-visible events to a self-hosted OBVS Server, which feeds the OBVS Frontend and OBS overlay for viewers. No Riot API is used.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #ffffff; }
+    .title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 26px; font-weight: 700; }
+    .subtitle { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 15px; }
+    .box-title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: 700; }
+    .box-text { fill: #334155; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
+    .label { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .note { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }
+    .node { stroke-width: 1.5; }
+    .arrow { stroke: #334155; stroke-width: 2; fill: none; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1240" height="680" rx="12"/>
+  <text class="title" x="40" y="48">OBVS architecture</text>
+  <text class="subtitle" x="40" y="76">Observer client → self-hosted server → OBS overlay. No Riot API.</text>
+
+  <!-- Observer PC -->
+  <rect x="30" y="104" width="360" height="476" rx="16" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="8 6"/>
+  <text class="box-title" x="52" y="136">Observer PC</text>
+
+  <rect class="node" x="55" y="156" width="310" height="90" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text class="box-title" x="72" y="186">Valorant spectator client</text>
+  <text class="box-text" x="72" y="210">Observer's POV in a custom game</text>
+  <text class="box-text" x="72" y="229">The observer sees only the spectator view</text>
+
+  <rect class="node" x="55" y="286" width="310" height="100" rx="10" fill="#dbeafe" stroke="#60a5fa"/>
+  <text class="box-title" x="72" y="316">Overwolf GEP (official)</text>
+  <text class="box-text" x="72" y="340">match_info · me · game_info</text>
+  <text class="box-text" x="72" y="359">kill · death</text>
+
+  <rect class="node" x="55" y="426" width="310" height="90" rx="10" fill="#dcfce7" stroke="#4ade80"/>
+  <text class="box-title" x="72" y="456">OBVS Client</text>
+  <text class="box-text" x="72" y="480">Settings + session status</text>
+  <text class="box-text" x="72" y="499">Manual Connect / Disconnect</text>
+
+  <line class="arrow" x1="210" y1="246" x2="210" y2="284" marker-end="url(#arrow)"/>
+  <text class="label" x="224" y="270">spectator-visible events</text>
+  <line class="arrow" x1="210" y1="386" x2="210" y2="424" marker-end="url(#arrow)"/>
+  <text class="label" x="224" y="410">GEP updates</text>
+
+  <!-- Server -->
+  <rect class="node" x="470" y="190" width="310" height="250" rx="14" fill="#fef3c7" stroke="#f59e0b"/>
+  <text class="box-title" x="492" y="224">Self-hosted OBVS Server</text>
+  <text class="box-text" x="492" y="252">Authoritative live match state</text>
+  <text class="box-text" x="492" y="274">Ordered, idempotent event store</text>
+  <text class="box-text" x="492" y="296">Capture-timestamp ordering</text>
+  <text class="box-text" x="492" y="318">One Match per group code</text>
+  <text class="box-text" x="492" y="340">Serves overlay snapshots ~100 ms</text>
+
+  <!-- Frontend -->
+  <rect class="node" x="870" y="130" width="320" height="110" rx="14" fill="#e0e7ff" stroke="#818cf8"/>
+  <text class="box-title" x="892" y="164">OBVS Frontend</text>
+  <text class="box-text" x="892" y="188">OBS browser-source overlay pages</text>
+  <text class="box-text" x="892" y="208">Score, round, players, economy</text>
+
+  <rect class="node" x="870" y="290" width="320" height="80" rx="14" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text class="box-title" x="892" y="322">OBS</text>
+  <text class="box-text" x="892" y="344">Browser source in the broadcast scene</text>
+
+  <rect class="node" x="870" y="420" width="320" height="80" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="box-title" x="892" y="452">Viewers</text>
+  <text class="box-text" x="892" y="474">Live tournament broadcast</text>
+
+  <path class="arrow" d="M 365 465 C 415 465, 425 340, 468 340" marker-end="url(#arrow)"/>
+  <text class="label" x="376" y="392">WebSocket ingest</text>
+  <text class="label" x="376" y="409">capturedAt per event</text>
+
+  <path class="arrow" d="M 780 300 C 820 300, 830 185, 868 185" marker-end="url(#arrow)"/>
+
+  <line class="arrow" x1="1030" y1="240" x2="1030" y2="288" marker-end="url(#arrow)"/>
+  <text class="label" x="1044" y="268">browser source</text>
+  <line class="arrow" x1="1030" y1="370" x2="1030" y2="418" marker-end="url(#arrow)"/>
+
+  <text class="note" x="40" y="624">No Riot API. No game memory reading or injection. Spectator-visible data only.</text>
+  <text class="note" x="40" y="648">The server is organizer-owned; OBVS does not run a third-party data service.</text>
+</svg>
