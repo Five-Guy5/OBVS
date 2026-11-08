@@ -30,7 +30,7 @@ This page is the public product walkthrough for review. No login, Discord accoun
 
 <!-- Optional: add a public 60-90 second walkthrough video link here before submission. The diagrams above already provide the visual flow. -->
 
-The architecture and session lifecycle diagrams reflect the implemented observer client; the UI panels and overlay are mockups of the intended UX.
+The architecture, visual flow, and session lifecycle diagrams reflect the current product. The Client settings mockup is a current UI mockup; the use-case diagram and overlay/admin UI demos are from the team's CS4090 Midterm Project Documentation.
 
 ### Client UI mockup
 
@@ -38,11 +38,13 @@ The architecture and session lifecycle diagrams reflect the implemented observer
 
 The Client is the observer's only desktop surface: connection settings, a text-and-icon session status, and manual Connect/Disconnect controls.
 
-### Overlay mockup
+### Overlay UI demos
 
-![Mockup of the OBVS OBS overlay with score, round, player panels, and observed-player panel](assets/riot/overlay-mockup.svg)
+![UI Demo #1: live OBVS overlay over a Valorant match](assets/riot/ui-demo-1.png)
 
-The Frontend is a set of OBS browser-source pages. It shows spectator-visible match information: team scores, round state, player panels, economy, and the currently observed player. It does not show a live spike timer.
+![UI Demo #2: OBVS player cards at enhanced resolution](assets/riot/ui-demo-2.png)
+
+The Frontend is a set of OBS browser-source pages. UI Demo #1 shows the live overlay over gameplay; UI Demo #2 shows the player cards at enhanced resolution. Both are from the project's CS4090 midterm documentation. They show spectator-visible match information: team scores, round state, player panels, economy, ultimate points, loadout, and the currently observed player. They do not show a live spike timer.
 
 ## How it works
 
@@ -69,6 +71,18 @@ The session is a small state machine:
 - **Failure paths** — a rejected logon or unreachable server returns to Idle with a text error; an unexpected connection loss returns to Idle with a text error.
 
 The status indicator uses text and an icon (Idle, Connecting…, Live, Stopping…, error) and never relies on color alone. The Match Secret is kept in memory for a manual mid-match reconnect and discarded at game end.
+
+## Use case overview
+
+![OBVS use-case diagram from the CS4090 midterm documentation](assets/riot/use-case-diagram.png)
+
+This use-case diagram is from the CS4090 midterm documentation. It covers the observer, admin, production, and viewer workflows. The CV frame-capture and CV-pipeline use cases are optional and disabled by default; this approval covers the GEP-only observer/overlay build. The Config Panel is a planned admin surface.
+
+### Config panel mockup (planned)
+
+![UI Demo #3: planned OBVS admin and config panel](assets/riot/ui-demo-3.png)
+
+UI Demo #3 shows the planned admin/config panel from the CS4090 documentation: current match status, Overwolf event monitoring, and past matches. It is not part of the current GEP-only build.
 
 ## Features
 
