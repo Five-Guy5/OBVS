@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">OBVS Client UI mockup</title>
+  <desc id="desc">Mockup of the OBVS Client settings window with session status, Connect and Disconnect controls, and connection fields.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 24px; font-weight: 700; }
+    .subtitle { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
+    .window { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; }
+    .titlebar { fill: #e2e8f0; }
+    .win-title { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; font-weight: 700; }
+    .section { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: 700; }
+    .status { fill: #15803d; font-family: 'Segoe UI', Arial, sans-serif; font-size: 15px; font-weight: 700; }
+    .label { fill: #334155; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .value { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+    .small { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; }
+    .btn-text { fill: #ffffff; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: 600; }
+    .btn-text-dark { fill: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: 600; }
+    .caption { fill: #475569; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="900" height="700" rx="12"/>
+  <text class="title" x="40" y="46">OBVS Client UI mockup</text>
+  <text class="subtitle" x="40" y="72">Observer configuration and session status</text>
+
+  <rect class="window" x="80" y="100" width="740" height="520" rx="12"/>
+  <rect class="titlebar" x="80" y="100" width="740" height="38" rx="12"/>
+  <text class="win-title" x="100" y="125">OBVS Client Settings</text>
+
+  <text class="section" x="104" y="176">Match session</text>
+  <text class="status" x="104" y="204">● Live</text>
+  <text class="small" x="104" y="226">Connected to the ingest server. Events are being relayed.</text>
+  <rect x="104" y="246" width="86" height="30" rx="6" fill="#94a3b8"/>
+  <text class="btn-text" x="124" y="266">Connect</text>
+  <rect x="200" y="246" width="100" height="30" rx="6" fill="#2563eb"/>
+  <text class="btn-text" x="219" y="266">Disconnect</text>
+
+  <line x1="104" y1="300" x2="796" y2="300" stroke="#e2e8f0"/>
+
+  <text class="section" x="104" y="334">Connection settings</text>
+
+  <text class="label" x="104" y="366">Server URL</text>
+  <rect x="104" y="376" width="660" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="value" x="116" y="397">https://obs.example.com</text>
+
+  <text class="label" x="104" y="434">Group code</text>
+  <rect x="104" y="444" width="300" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="value" x="116" y="465">demo-group</text>
+
+  <text class="label" x="464" y="434">Display name</text>
+  <rect x="464" y="444" width="300" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="value" x="476" y="465">Observer</text>
+
+  <text class="label" x="104" y="502">Auth key (optional)</text>
+  <rect x="104" y="512" width="300" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="value" x="116" y="533">••••••••</text>
+  <text class="small" x="424" y="533">Stored in the OS credential store</text>
+
+  <rect x="104" y="566" width="120" height="32" rx="6" fill="#16a34a"/>
+  <text class="btn-text" x="124" y="587">Save settings</text>
+  <text class="small" x="240" y="587">Settings saved.</text>
+
+  <text class="caption" x="80" y="652">Mockup. Status always includes text and an icon; Connect is disabled while live.</text>
+  <text class="caption" x="80" y="674">No Riot logos or Riot API data are used.</text>
+</svg>

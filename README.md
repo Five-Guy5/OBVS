@@ -1,8 +1,10 @@
 # OBVS
 
-Open Broadcasting Valorant Software: a Valorant tournament overlay for the Missouri S&T Esports
-Club. This is a greenfield, from-scratch implementation with no wire compatibility with legacy
-Spectra. It is one monorepo holding the three project parts and the single shared protocol package.
+Open Broadcasting Valorant Software: a free tournament broadcast overlay for Valorant
+community tournaments. Maintained by the Five-Guy5 team and first deployed by the
+Missouri S&T Esports Club; any community tournament organizer can self-host it. This is a
+greenfield, from-scratch implementation with no wire compatibility with legacy Spectra.
+It is one monorepo holding the three project parts and the single shared protocol package.
 
 | Path | Component |
 | --- | --- |
