@@ -131,7 +131,7 @@ test('blank auth key keeps the stored key', async () => {
 });
 
 test('first-time save with a blank key succeeds with no key stored', async () => {
-  // Documents current behavior; see the note in the PR about whether this is intended.
+  // README documents the auth key as optional for open-ingest servers.
   const app = await launchApp();
   assert.deepEqual(await app.save({ ...valid, authKey: '' }), { ok: true });
   assert.equal((await app.load()).hasAuthKey, false);
