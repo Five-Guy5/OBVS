@@ -237,6 +237,61 @@ describe("broadcaster", () => {
     broadcaster.close();
   });
 
+  it("replaces a provisional result when match.info arrives late", () => {
+    const { registry, broadcaster } = setup();
+    const claim = registry.claim("group_1", observer);
+    assert.ok(claim.ok);
+
+    const endEvent: IngestEvent = {
+      protocolVersion: PROTOCOL_VERSION,
+      eventId: "late-end",
+      type: "match.end",
+      capturedAt: "2026-01-01T00:00:10.000Z",
+      payload: { winningTeamId: 0 },
+    };
+    claim.match.append(endEvent);
+    assert.deepEqual(broadcaster.snapshot("group_1").series.maps, [
+      { map: "unknown", winningTeamId: 0 },
+    ]);
+
+    claim.match.append({
+      protocolVersion: PROTOCOL_VERSION,
+      eventId: "late-info",
+      type: "match.info",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      payload: { matchId: "late-game", map: "Haven" },
+    });
+
+    const series = broadcaster.snapshot("group_1").series;
+    assert.deepEqual(series.maps, [{ map: "Haven", winningTeamId: 0 }]);
+    assert.deepEqual(series.wins, [1, 0]);
+    broadcaster.close();
+  });
+
+  it("does not count a replayed stream twice when a new Match starts", () => {
+    const { registry, broadcaster } = setup();
+    const first = registry.claim("group_1", observer);
+    assert.ok(first.ok);
+
+    for (const next of ingestSequence) {
+      first.match.append(next);
+    }
+    registry.remove(first.match);
+
+    const second = registry.claim("group_1", observer);
+    assert.ok(second.ok);
+    for (const next of ingestSequence) {
+      second.match.append(next);
+    }
+
+    const series = broadcaster.snapshot("group_1").series;
+    assert.deepEqual(series.maps, [
+      { map: "/Game/Maps/Haven/Haven", winningTeamId: 0 },
+    ]);
+    assert.deepEqual(series.wins, [1, 0]);
+    broadcaster.close();
+  });
+
   it("still pushes to existing subscribers when another subscribes mid-interval", async () => {
     const { registry, broadcaster } = setup();
     const first = recorder();

@@ -160,7 +160,7 @@ export class Broadcaster {
     }
   }
 
-  /** Upsert by map, so replays and late events never count a map twice. */
+  /** Upsert by game id, so replays and late events never count a map twice. */
   #recordResult(groupCode: string, match: Match): void {
     const results = this.#group(groupCode).seriesResults;
     const result: SeriesResult = {
@@ -168,6 +168,16 @@ export class Broadcaster {
       map: match.state.map ?? "unknown",
       winningTeamId: match.state.winningTeamId,
     };
+
+    // A result recorded before match.info is keyed by the Match id; replace it
+    // when the game id arrives instead of adding a second entry for the same map.
+    if (match.state.gameId !== null) {
+      const provisional = results.findIndex((entry) => entry.key === match.matchId);
+      if (provisional !== -1) {
+        results.splice(provisional, 1);
+      }
+    }
+
     const index = results.findIndex((entry) => entry.key === result.key);
     const current = index === -1 ? undefined : results[index];
 

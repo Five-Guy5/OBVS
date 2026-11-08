@@ -103,9 +103,12 @@ function buildTeam(
   };
 }
 
-/** A Match can span several maps, so each map is keyed by its Match and its game id. */
+/**
+ * A Match can span several maps. A map is identified by its GEP game id, which
+ * survives Match removal; the Match id is only a provisional key until it arrives.
+ */
 export function seriesKey(matchId: string, state: MatchState): string {
-  return `${matchId}:${state.gameId ?? ""}`;
+  return state.gameId ?? matchId;
 }
 
 /** Sides swap after the first half; in overtime they alternate every round. */
