@@ -1,4 +1,4 @@
-import type { CapabilityAdvertisement } from "@obvs/protocol";
+import type { CapabilityAdvertisement, ProductionConfig } from "@obvs/protocol";
 
 export interface ServerConfig {
   port: number;
@@ -11,6 +11,12 @@ export interface ServerConfig {
   maxPayloadBytes?: number;
   /** Inactivity window before a disconnected Match is removed (S.4). */
   idleTimeoutMs?: number;
+  /** Frontend subscription port, separate from Observer ingest (S.3). */
+  broadcastPort?: number;
+  /** Broadcast is read-only and unauthenticated, so cap open subscriber sockets. */
+  maxSubscribers?: number;
+  /** Carried in every snapshot; admin editing replaces this default later (S.5.1). */
+  production?: ProductionConfig;
 }
 
 /** GEP is the base source; CV stays off until the CV pipeline lands (ADR-0008). */
@@ -23,7 +29,24 @@ export const DEFAULT_CAPABILITIES: CapabilityAdvertisement = {
   fields: {},
 };
 
+/** Neutral placeholders until an admin edits the production config. */
+export const DEFAULT_PRODUCTION: ProductionConfig = {
+  tournament: { name: "OBVS", logoUrl: null, backdropUrl: null },
+  teams: [
+    { name: "Team A", tricode: "TMA", logoUrl: null, startingSide: "attack" },
+    { name: "Team B", tricode: "TMB", logoUrl: null, startingSide: "defense" },
+  ],
+  seriesFormat: "BO1",
+  timeout: { durationMs: 60_000, countsPerTeam: 2 },
+  sponsors: [],
+  watermark: { text: "", enabled: false },
+  playerNameOverrides: {},
+  toasts: [],
+};
+
 const DEFAULT_PORT = 3000;
+export const DEFAULT_BROADCAST_PORT = 3001;
+export const DEFAULT_MAX_SUBSCRIBERS = 256;
 export const DEFAULT_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 
@@ -48,6 +71,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     throw new Error("OBVS_IDLE_TIMEOUT_MS must be a positive integer.");
   }
 
+  const broadcastPort = env.OBVS_BROADCAST_PORT === undefined
+    ? DEFAULT_BROADCAST_PORT
+    : Number(env.OBVS_BROADCAST_PORT);
+  if (!Number.isInteger(broadcastPort) || broadcastPort < 0 || broadcastPort > 65535) {
+    throw new Error("OBVS_BROADCAST_PORT must be an integer from 0 to 65535.");
+  }
+
+  const maxSubscribers = env.OBVS_MAX_SUBSCRIBERS === undefined
+    ? DEFAULT_MAX_SUBSCRIBERS
+    : Number(env.OBVS_MAX_SUBSCRIBERS);
+  if (!Number.isInteger(maxSubscribers) || maxSubscribers <= 0) {
+    throw new Error("OBVS_MAX_SUBSCRIBERS must be a positive integer.");
+  }
+
   // A blank key is treated as unset so an empty variable never locks every Observer out.
   const authKey = env.OBVS_AUTH_KEY || null;
 
@@ -58,5 +95,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     capabilities: DEFAULT_CAPABILITIES,
     maxPayloadBytes,
     idleTimeoutMs,
+    broadcastPort,
+    maxSubscribers,
+    production: DEFAULT_PRODUCTION,
   };
 }

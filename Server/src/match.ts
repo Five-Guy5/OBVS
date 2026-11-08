@@ -6,6 +6,9 @@ import {
   type IngestEventType,
 } from "@obvs/protocol";
 
+import { payloadError } from "./payload.js";
+import { applyEvent, initialMatchState, replay, type MatchState } from "./state.js";
+
 export interface ObserverInfo {
   name: string;
   clientVersion: string;
@@ -52,15 +55,26 @@ export class Match {
   readonly #eventIds = new Set<string>();
   #connection: object | null = null;
   #lastActivityAtMs = Date.now();
+  #state = initialMatchState();
+  readonly #onChange: () => void;
 
+  /** `onChange` runs after every appended event so Broadcast can push the change. */
   constructor(
     readonly groupCode: string,
     readonly observer: ObserverInfo,
-  ) {}
+    onChange: () => void = () => {},
+  ) {
+    this.#onChange = onChange;
+  }
 
   /** Events in capture-timestamp order; ties keep arrival order. */
   get events(): readonly IngestEvent[] {
     return this.#events;
+  }
+
+  /** Authoritative state; always equal to replaying `events` from the start. */
+  get state(): MatchState {
+    return this.#state;
   }
 
   get isConnected(): boolean {
@@ -96,10 +110,18 @@ export class Match {
 
     const capturedAtMs = Date.parse(event.capturedAt);
     const index = this.#insertionIndex(capturedAtMs);
+    // A late event lands mid-stream, so state is rebuilt to stay in capture order.
+    // State is computed before the event is stored, so a throw leaves the Match intact.
+    const state =
+      index === this.#events.length
+        ? applyEvent(this.#state, event)
+        : replay([...this.#events.slice(0, index), event, ...this.#events.slice(index)]);
 
     this.#events.splice(index, 0, event);
     this.#capturedAtMs.splice(index, 0, capturedAtMs);
     this.#eventIds.add(event.eventId);
+    this.#state = state;
+    this.#onChange();
 
     return "appended";
   }
@@ -123,7 +145,7 @@ export class Match {
   }
 }
 
-/** Check the event envelope; payload contents are left to the slices that consume them. */
+/** Check the event envelope and the payload fields Match state reads. */
 export function parseIngestEvent(input: unknown): EventParseResult {
   if (typeof input !== "object" || input === null) {
     return { ok: false, reason: "Event must be a JSON object." };
@@ -158,6 +180,12 @@ export function parseIngestEvent(input: unknown): EventParseResult {
 
   if (typeof payload !== "object" || payload === null) {
     return { ok: false, reason: "Event payload must be an object." };
+  }
+
+  const payloadReason = payloadError(type as IngestEventType, payload as Record<string, unknown>);
+
+  if (payloadReason !== null) {
+    return { ok: false, reason: payloadReason };
   }
 
   return { ok: true, event: input as IngestEvent };
