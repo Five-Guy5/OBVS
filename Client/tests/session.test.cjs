@@ -355,3 +355,27 @@ test('does not reuse a previous round after a new match', () => {
   const round = next.sent.slice(before).find((event) => event.type === 'round');
   assert.deepEqual(round.payload, { number: 1, phase: 'shopping' });
 });
+
+test('does not emit a new round with the previous phase', () => {
+  const { session, sockets } = createSession();
+  const socket = goLive(session, sockets);
+
+  session.handleInfo({ feature: 'match_info', key: 'round_number', value: '1' });
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'shopping' });
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'combat' });
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'end' });
+
+  const before = socket.sent.length;
+  session.handleInfo({ feature: 'match_info', key: 'round_number', value: '2' });
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'game_start' });
+
+  assert.equal(
+    socket.sent.slice(before).filter((event) => event.type === 'round').length,
+    0,
+    'round 2 must wait for a known phase'
+  );
+
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'shopping' });
+  const round = socket.sent.slice(before).find((event) => event.type === 'round');
+  assert.deepEqual(round.payload, { number: 2, phase: 'shopping' });
+});

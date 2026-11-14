@@ -73,7 +73,7 @@ npm test -w @obvs/client
 npm run typecheck -w @obvs/client
 ```
 
-Expected: all Client tests pass (40 with current `dev` merged) and typecheck
+Expected: all Client tests pass (41 with current `dev` merged) and typecheck
 exits with code 0.
 
 ## 4. Set the dev-mode environment
@@ -396,3 +396,8 @@ was yellow or red.
 `round` needs both `match_info/round_number` and `match_info/round_phase`.
 If only one arrives, the raw frames are still captured but the typed `round`
 event is intentionally withheld.
+
+`round_phase=game_start` is not a protocol phase, so it produces only a
+`gep.raw` frame. After a new `round_number`, the Client clears the previous
+phase and waits for `shopping`, `combat`, `end`, or `game_end`; this prevents a
+new round from being reported with the old round's `end` phase.

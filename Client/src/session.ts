@@ -220,7 +220,11 @@ export class Session {
     let ending = false;
 
     if (scene !== null) this.#onScene(scene);
-    if (roundNumber !== null) this.#roundNumber = roundNumber;
+    if (roundNumber !== null) {
+      // The previous round's phase is stale once the round number changes.
+      if (roundNumber !== this.#roundNumber) this.#roundPhase = null;
+      this.#roundNumber = roundNumber;
+    }
     if (phase !== null) {
       this.#roundPhase = phase;
       if (phase === 'game_end') ending = true;
@@ -243,7 +247,10 @@ export class Session {
       if (scene !== null) {
         this.#relay(makeEvent('scene', { scene }, capturedAt));
       }
-      if (feature === 'match_info' && (key === 'round_number' || key === 'round_phase')) {
+      if (feature === 'match_info' && (
+        (key === 'round_number' && roundNumber !== null) ||
+        (key === 'round_phase' && phase !== null)
+      )) {
         this.#emitRound(capturedAt);
       }
       if (ending && !this.#ended) {
