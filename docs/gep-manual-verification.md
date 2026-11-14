@@ -73,7 +73,7 @@ npm test -w @obvs/client
 npm run typecheck -w @obvs/client
 ```
 
-Expected: all Client tests pass (39 with current `dev` merged) and typecheck
+Expected: all Client tests pass (40 with current `dev` merged) and typecheck
 exits with code 0.
 
 ## 4. Set the dev-mode environment

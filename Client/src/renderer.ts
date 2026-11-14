@@ -1,27 +1,31 @@
 
-import type { SessionState, SessionStatus } from './session';
+// This file is loaded as a classic browser script, not a CommonJS module, so
+// it cannot import even type-only symbols. Keep these in sync with session.ts.
+type SessionState = 'idle' | 'connecting' | 'live' | 'stopping';
+interface SessionStatus {
+  state: SessionState;
+  error: string | null;
+}
 
 type Field = 'serverUrl' | 'groupCode' | 'displayName' | 'authKey';
 type SettingsInput = Record<Field, string>;
 type FieldErrors = Partial<Record<Field, string>>;
 
-declare global {
-  interface Window {
-    obvs: {
-      loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & {
-        hasAuthKey: boolean;
-        warning?: string;
-      }>;
-      saveSettings(values: SettingsInput): Promise<
-        { ok: true } | { ok: false; errors?: FieldErrors; message?: string }
-      >;
-      clearAuthKey(): Promise<void>;
-      getSessionStatus(): Promise<SessionStatus>;
-      connect(): Promise<SessionStatus>;
-      disconnect(): Promise<SessionStatus>;
-      onSessionStatus(callback: (status: SessionStatus) => void): void;
-    };
-  }
+interface Window {
+  obvs: {
+    loadSettings(): Promise<Omit<SettingsInput, 'authKey'> & {
+      hasAuthKey: boolean;
+      warning?: string;
+    }>;
+    saveSettings(values: SettingsInput): Promise<
+      { ok: true } | { ok: false; errors?: FieldErrors; message?: string }
+    >;
+    clearAuthKey(): Promise<void>;
+    getSessionStatus(): Promise<SessionStatus>;
+    connect(): Promise<SessionStatus>;
+    disconnect(): Promise<SessionStatus>;
+    onSessionStatus(callback: (status: SessionStatus) => void): void;
+  };
 }
 
 const form = document.querySelector<HTMLFormElement>('#settings-form')!;
