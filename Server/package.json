@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "tsx --test test/*.test.ts",
     "start": "node dist/main.js",
-    "dev": "tsx src/main.ts"
+    "dev": "tsx src/main.ts",
+    "capture": "node scripts/gep-capture.mjs"
   },
   "dependencies": {
     "@obvs/protocol": "*",

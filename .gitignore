@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.log
+gep-capture.jsonl
 .DS_Store
 .env
 .env.*
