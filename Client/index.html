@@ -9,6 +9,14 @@
 </head>
 <body>
   <h1>OBVS Client Settings</h1>
+  <h2>Match session</h2>
+  <p><span id="session-icon" aria-hidden="true">○</span>
+    <span id="session-status" role="status" aria-live="polite">Idle</span></p>
+  <p>
+    <button id="connect" type="button">Connect</button>
+    <button id="disconnect" type="button" disabled>Disconnect</button>
+  </p>
+
   <form id="settings-form" novalidate>
     <p><label for="serverUrl">Server URL</label><br>
       <input id="serverUrl" type="text" placeholder="https://localhost:3000" required>

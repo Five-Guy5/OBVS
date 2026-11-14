@@ -4,14 +4,49 @@ import * as keytar from 'keytar';
 import { userInfo } from 'node:os';
 import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  Session,
+  type GepUpdate,
+  type SessionConfig,
+  type SessionStatus,
+  type SocketLike,
+} from './session';
 import { validateSettings, type PublicSettings, type SaveResult } from './settings';
 
 const SERVICE = 'io.obvs.client';
 const ACCOUNT = 'server-auth-key';
 // Non-TLS is a local-development escape hatch, never available in packaged builds.
 const ALLOW_INSECURE_URL = !app.isPackaged && process.env.OBVS_ALLOW_INSECURE_URL === '1';
+const VALORANT_GAME_ID = 21640; // kGepSupportedGameIds.VALORANT
+const GEP_FEATURES = ['match_info', 'me', 'game_info', 'kill', 'death'];
 let mainWindow: BrowserWindow | null = null;
 let saving = false;
+let gepListening = false;
+let gepAttached = false;
+
+const session = new Session({
+  clientVersion: app.getVersion(),
+  allowInsecure: ALLOW_INSECURE_URL,
+  createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
+  onChange: publishStatus
+});
+
+// Register before app readiness so Valorant is detected if it is already running.
+setupGep();
+
+interface GepLaunchEvent {
+  enable(): void;
+}
+
+interface GepApi {
+  on(event: 'game-detected', listener: (event: GepLaunchEvent, gameId: number) => void): void;
+  on(event: 'new-info-update',
+    listener: (event: unknown, gameId: number, data: GepUpdate) => void): void;
+  on(event: 'new-game-event',
+    listener: (event: unknown, gameId: number, data: GepUpdate) => void): void;
+  on(event: 'error', listener: (event: unknown, gameId: number, error: string) => void): void;
+  setRequiredFeatures(gameId: number, features: string[] | undefined): Promise<void>;
+}
 
 function settingsFile(): string {
   return join(app.getPath('userData'), 'settings.json');
@@ -56,6 +91,65 @@ async function loadSettings() {
   };
 }
 
+async function loadConnectionConfig(): Promise<SessionConfig | null> {
+  const stored = await readSettings();
+  if (!stored) return null;
+  const authKey = (await keytar.getPassword(SERVICE, ACCOUNT)) ?? '';
+  return { ...stored, authKey };
+}
+
+async function refreshSessionConfig(): Promise<void> {
+  try {
+    session.setConfig(await loadConnectionConfig());
+  } catch {
+    session.setConfig(null);
+  }
+}
+
+function publishStatus(status: SessionStatus): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('session:status', status);
+  }
+}
+
+function setupGep(): void {
+  if (gepListening) return;
+  const packages = app.overwolf?.packages;
+  if (!packages) return;
+  gepListening = true;
+  packages.on('ready', (_event, name) => {
+    if (name === 'gep') attachGep();
+  });
+  attachGep();
+}
+
+function attachGep(): void {
+  if (gepAttached) return;
+  const gep = (app.overwolf.packages as unknown as { gep?: GepApi }).gep;
+  if (!gep) return;
+  gepAttached = true;
+
+  gep.on('game-detected', (event, gameId) => {
+    if (gameId !== VALORANT_GAME_ID) return;
+    event.enable();
+    console.log(`[gep] Valorant detected (${gameId}); requesting features.`);
+    gep.setRequiredFeatures(gameId, GEP_FEATURES).catch((error: unknown) => {
+      console.error(`[gep] could not set required features: ${String(error)}`);
+    });
+  });
+  gep.on('new-info-update', (_event, gameId, data) => {
+    if (gameId !== VALORANT_GAME_ID) return;
+    session.handleInfo(data);
+  });
+  gep.on('new-game-event', (_event, gameId, data) => {
+    if (gameId !== VALORANT_GAME_ID) return;
+    session.handleEvent(data);
+  });
+  gep.on('error', (_event, gameId, error) => {
+    console.error(`[gep] game ${gameId}: ${error}`);
+  });
+}
+
 async function saveSettings(input: unknown): Promise<SaveResult> {
   if (saving) return { ok: false, message: 'Already saving settings.' };
   saving = true;
@@ -88,6 +182,7 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
         encoding: 'utf8', mode: 0o600
       });
       await rename(tempFile, file);
+      await refreshSessionConfig();
       return { ok: true };
     } catch {
       if (keyWasUpdated) {
@@ -125,11 +220,19 @@ function createWindow(): void {
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.send('session:status', session.status);
+  });
   void win.loadFile(join(__dirname, '../index.html'));
   win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Retry if the Overwolf package manager was not exposed at module load.
+  setupGep();
+  if (!gepListening) console.warn('[gep] Overwolf package manager is unavailable.');
+  await refreshSessionConfig();
+
   ipcMain.handle('settings:load', (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
     return loadSettings();
@@ -142,7 +245,23 @@ app.whenReady().then(() => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
     if (saving) throw new Error('A settings save is in progress.');
     await keytar.deletePassword(SERVICE, ACCOUNT);
+    await refreshSessionConfig();
   });
+  ipcMain.handle('session:status', (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
+    return session.status;
+  });
+  ipcMain.handle('session:connect', (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
+    session.connect();
+    return session.status;
+  });
+  ipcMain.handle('session:disconnect', (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
+    session.disconnect();
+    return session.status;
+  });
+
   createWindow();
 }).catch(console.error);
 

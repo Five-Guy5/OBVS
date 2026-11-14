@@ -46,6 +46,7 @@ async function launchApp() {
   const fakeElectron = {
     app: {
       isPackaged: false,
+      getVersion: () => '0.1.0',
       getPath: () => userData,
       whenReady: () => Promise.resolve(),
       on() {},
@@ -64,11 +65,17 @@ async function launchApp() {
   try {
     delete require.cache[MAIN]; // fresh module state, like a real restart
     require(MAIN);
-    await new Promise((resolve) => setImmediate(resolve)); // let app.whenReady().then(...) run
+    // app.whenReady() may await settings and keytar before it creates the
+    // window and registers IPC handlers.
+    const deadline = Date.now() + 1000;
+    while ((!win || !handlers['settings:load']) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   } finally {
     Module._load = realLoad;
   }
 
+  assert.ok(win && handlers['settings:load'], 'app did not finish starting');
   const call = (name, ...args) => handlers[name]({ sender: win.webContents }, ...args);
   return { save: (input) => call('settings:save', input), load: () => call('settings:load') };
 }

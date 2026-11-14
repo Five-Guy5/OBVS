@@ -9,7 +9,7 @@
     "name": "Five-Guy5"
   },
   "overwolf": {
-    "packages": []
+    "packages": ["gep"]
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -19,6 +19,7 @@
     "dev": "npm run build && npm run start"
   },
   "dependencies": {
+    "@obvs/protocol": "*",
     "keytar": "7.9.0"
   },
   "devDependencies": {
