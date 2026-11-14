@@ -8,14 +8,14 @@ import {
   DEFAULT_MAX_PAYLOAD_BYTES,
   type ServerConfig,
 } from "./config.js";
+import { startHeartbeat, trackLiveness } from "./heartbeat.js";
 import { constantTimeEqual, isAuthorized, parseLogonRequest } from "./logon.js";
-import { parseIngestEvent, type Match } from "./match.js";
+import { parseIngestEvent, type AppendResult, type Match } from "./match.js";
 import type { MatchRegistry } from "./registry.js";
 
 const POLICY_VIOLATION = 1008;
 const FAILED_LOGON_WINDOW_MS = 60_000;
 const MAX_FAILED_LOGONS = 5;
-const HEARTBEAT_INTERVAL_MS = 30_000;
 const SWEEP_INTERVAL_MS = 60_000;
 const LOGON_TIMEOUT_MS = 10_000;
 
@@ -76,29 +76,11 @@ export function startIngestServer(
       console.error(`[ingest] server error: ${error.message}`);
     });
     server.on("connection", (socket, request) => {
-      const state = socket as WebSocket & { isAlive?: boolean };
-      state.isAlive = true;
-      socket.on("pong", () => { state.isAlive = true; });
+      trackLiveness(socket);
       handleConnection(socket, request, config, registry, limiter);
     });
 
-    const heartbeat = setInterval(() => {
-      for (const socket of server.clients) {
-        if (socket.readyState !== WebSocket.OPEN) continue;
-        const state = socket as WebSocket & { isAlive?: boolean };
-        if (state.isAlive === false) {
-          socket.terminate();
-          continue;
-        }
-        state.isAlive = false;
-        try {
-          socket.ping();
-        } catch {
-          socket.terminate();
-        }
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-    heartbeat.unref();
+    startHeartbeat(server);
 
     const sweeper = setInterval(() => {
       const removed = registry.sweep(config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS);
@@ -106,10 +88,7 @@ export function startIngestServer(
     }, SWEEP_INTERVAL_MS);
     sweeper.unref();
 
-    server.on("close", () => {
-      clearInterval(heartbeat);
-      clearInterval(sweeper);
-    });
+    server.on("close", () => clearInterval(sweeper));
   });
 }
 
@@ -193,7 +172,17 @@ export function handleConnection(
       return;
     }
 
-    const result = match.append(parsed.event);
+    let result: AppendResult;
+
+    // Parsing already checks payloads; this keeps any missed case from crashing the process.
+    try {
+      result = match.append(parsed.event);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ingest] apply error ${match.groupCode} ${parsed.event.eventId}: ${message}`);
+      return;
+    }
+
     console.log(`[ingest] event ${match.groupCode} ${parsed.event.type} ${parsed.event.eventId} (${result})`);
   });
 
