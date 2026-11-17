@@ -8,13 +8,23 @@ function title(text: string): HTMLElement {
   return heading;
 }
 
-export const liveMatchPage: Page = () => title("Live Match");
+const waiting = (): HTMLElement => title("Waiting for match…");
 
-export const agentSelectPage: Page = () => title("Agent Select");
+// F.3: a page without an active Match shows a placeholder, never live data.
+function pageFor(liveTitle: string): Page {
+  return (snapshot) =>
+    snapshot.match === null ? waiting() : title(liveTitle);
+}
+
+export const liveMatchPage = pageFor("Live Match");
+
+export const agentSelectPage = pageFor("Agent Select");
 
 export const autoswitchPage: Page = (snapshot) =>
-  snapshot.match !== null && snapshot.match.round.number === 0
-    ? agentSelectPage(snapshot)
-    : liveMatchPage(snapshot);
+  snapshot.match === null
+    ? waiting()
+    : snapshot.match.round.number === 0
+      ? agentSelectPage(snapshot)
+      : liveMatchPage(snapshot);
 
-export const timeoutPage: Page = () => title("Timeout / Tech Pause");
+export const timeoutPage = pageFor("Timeout / Tech Pause");
