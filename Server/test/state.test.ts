@@ -81,7 +81,7 @@ describe("applyEvent against the recorded ingest fixture", () => {
 });
 
 describe("applyEvent round tracking", () => {
-  it("records a round result with the spike outcome as the reason", () => {
+  it("records a round result with the spike outcome or timeout as the reason", () => {
     const state = replay([
       event("r1", "round", "2026-01-01T00:00:01Z", { number: 1, phase: "combat" }),
       event("s1", "spike", "2026-01-01T00:00:02Z", { action: "planted", site: "B" }),
@@ -93,7 +93,7 @@ describe("applyEvent round tracking", () => {
 
     assert.deepEqual(state.roundHistory, [
       { roundNumber: 1, winningTeamId: 1, reason: "detonated", recordedAt: "2026-01-01T00:00:04Z" },
-      { roundNumber: 2, winningTeamId: 0, reason: "unknown", recordedAt: "2026-01-01T00:00:06Z" },
+      { roundNumber: 2, winningTeamId: 0, reason: "timeout", recordedAt: "2026-01-01T00:00:06Z" },
     ]);
     assert.equal(state.spike, null);
     assert.deepEqual(state.roundsWon, [1, 1]);

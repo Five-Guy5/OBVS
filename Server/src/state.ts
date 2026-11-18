@@ -132,8 +132,9 @@ export function applyEvent(state: MatchState, event: IngestEvent): MatchState {
         ...state,
         running: !state.ended,
         round,
-        // The spike belongs to one round; a new round starts without one.
+        // The spike and alive flags belong to one round; a new round starts unknown.
         spike: newRound ? null : state.spike,
+        players: newRound ? resetPlayersAlive(state.players) : state.players,
         availability: { ...state.availability, round: { source: "gep", updatedAt: at } },
       };
     }
@@ -149,7 +150,7 @@ export function applyEvent(state: MatchState, event: IngestEvent): MatchState {
               {
                 roundNumber: state.round.number,
                 winningTeamId: winner,
-                reason: roundWinReason(state.spike),
+                reason: roundWinReason(state, winner),
                 recordedAt: at,
               },
             ];
@@ -298,11 +299,41 @@ function singleRoundWinner(
   return oneWon ? 1 : null;
 }
 
-function roundWinReason(spike: SpikeState | null): RoundResult["reason"] {
-  if (spike?.status === "detonated" || spike?.status === "defused") {
-    return spike.status;
+function roundWinReason(state: MatchState, winner: TeamId): RoundResult["reason"] {
+  if (state.spike?.status === "detonated" || state.spike?.status === "defused") {
+    return state.spike.status;
   }
 
-  // Elimination and timeout cannot be told apart from the current event catalog.
-  return "unknown";
+  if (teamEliminated(state, winner === 0 ? 1 : 0)) {
+    return "elimination";
+  }
+
+  // A planted spike that never resolved means its detonation/defuse event is missing.
+  if (state.spike?.status === "planted") {
+    return "unknown";
+  }
+
+  // With no spike outcome and nobody eliminated, the only remaining round end is
+  // the round clock expiring (S.1.2).
+  return "timeout";
+}
+
+/** All five players must be known and dead; incomplete roster data must not fake an elimination. */
+function teamEliminated(state: MatchState, teamId: TeamId): boolean {
+  const players = Object.values(state.players).filter((player) => player.teamId === teamId);
+
+  return players.length >= 5 && players.every((player) => player.alive === false);
+}
+
+/** A new round clears stale kills from the previous round. */
+function resetPlayersAlive(players: Record<string, PlayerState>): Record<string, PlayerState> {
+  const reset: Record<string, PlayerState> = {};
+
+  for (const [puuid, player] of Object.entries(players)) {
+    const availability = { ...player.availability };
+    delete availability.alive;
+    reset[puuid] = { ...player, alive: null, availability };
+  }
+
+  return reset;
 }
