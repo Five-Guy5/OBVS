@@ -14,8 +14,36 @@
 
       /* Fixed 1920×1080 transparent canvas for OBS browser sources. */
       #root {
+        position: relative;
         width: 1920px;
         height: 1080px;
+      }
+
+      /* 5% title-safe inset: nothing on the Live page renders outside it. */
+      .safe-area {
+        position: absolute;
+        inset: 54px 96px;
+      }
+
+      .header {
+        text-align: center;
+      }
+
+      .team {
+        position: absolute;
+        bottom: 0;
+      }
+
+      .team-0 {
+        left: 0;
+      }
+
+      .team-1 {
+        right: 0;
+      }
+
+      .dead {
+        opacity: 0.4;
       }
     </style>
   </head>
