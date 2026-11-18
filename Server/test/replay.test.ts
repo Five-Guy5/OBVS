@@ -284,23 +284,15 @@ describe("replay: reducer and snapshot", () => {
     assert.ok(inOvertime.round.number >= inOvertime.thresholds.overtimeFromRound!, "round 25 is overtime");
   });
 
-  const winReasons: { reason: RoundWinReason; winner: TeamId; todo?: string }[] = [
+  const winReasons: { reason: RoundWinReason; winner: TeamId }[] = [
     { reason: "detonated", winner: 0 },
     { reason: "defused", winner: 1 },
-    {
-      reason: "elimination",
-      winner: 0,
-      todo: "state.ts roundWinReason() records 'unknown': elimination is not derivable from the current event catalog",
-    },
-    {
-      reason: "timeout",
-      winner: 1,
-      todo: "state.ts roundWinReason() records 'unknown': timeout is not derivable from the current event catalog",
-    },
+    { reason: "elimination", winner: 0 },
+    { reason: "timeout", winner: 1 },
   ];
 
-  for (const { reason, winner, todo } of winReasons) {
-    it(`records the win reason "${reason}" in the round history`, todo ? { todo } : {}, () => {
+  for (const { reason, winner } of winReasons) {
+    it(`records the win reason "${reason}" in the round history`, () => {
       const stream = new Stream();
       const match = snapshotOf(stateOf([...stream.start(), ...stream.playRound(winner, reason)])).match!;
 
