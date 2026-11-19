@@ -1,15 +1,18 @@
-
 // This file is loaded as a classic browser script, not a CommonJS module, so
-// it cannot import even type-only symbols. Keep these in sync with session.ts.
-type SessionState = 'idle' | 'connecting' | 'live' | 'stopping';
+// it cannot import even type-only symbols. Keep these in sync with session.ts
+// and settings.ts.
+type SessionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'stopping';
 interface SessionStatus {
   state: SessionState;
   error: string | null;
+  warning: string | null;
 }
 
 type Field = 'serverUrl' | 'groupCode' | 'displayName' | 'authKey';
-type SettingsInput = Record<Field, string>;
-type FieldErrors = Partial<Record<Field, string>>;
+type HotkeyAction = 'techPause' | 'timeoutLeft' | 'timeoutRight' | 'spikePlanted';
+type HotkeyBindings = Record<HotkeyAction, string>;
+type SettingsInput = Record<Field, string> & { hotkeys: HotkeyBindings };
+type FieldErrors = Partial<Record<Field | 'hotkeys', string>>;
 
 interface Window {
   obvs: {
@@ -37,18 +40,24 @@ const connectButton = document.querySelector<HTMLButtonElement>('#connect')!;
 const disconnectButton = document.querySelector<HTMLButtonElement>('#disconnect')!;
 const sessionIcon = document.querySelector<HTMLElement>('#session-icon')!;
 const sessionStatus = document.querySelector<HTMLElement>('#session-status')!;
+const sessionWarning = document.querySelector<HTMLElement>('#session-warning')!;
+const hotkeysError = document.querySelector<HTMLElement>('#hotkeys-error')!;
 
 const SESSION_DISPLAY: Record<SessionState, { text: string; icon: string }> = {
   idle: { text: 'Idle', icon: '○' },
   connecting: { text: 'Connecting…', icon: '◌' },
   live: { text: 'Live', icon: '●' },
+  reconnecting: { text: 'Reconnecting…', icon: '◌' },
   stopping: { text: 'Stopping…', icon: '■' }
 };
 
 function renderSessionStatus(status: SessionStatus): void {
   const display = SESSION_DISPLAY[status.state];
   sessionIcon.textContent = status.error ? '⚠' : display.icon;
-  sessionStatus.textContent = status.error ? `Idle — ${status.error}` : display.text;
+  sessionStatus.textContent = status.error
+    ? `${display.text} — ${status.error}`
+    : display.text;
+  sessionWarning.textContent = status.warning ?? '';
   connectButton.disabled = status.state !== 'idle';
   disconnectButton.disabled = status.state === 'idle' || status.state === 'stopping';
 }
@@ -58,6 +67,13 @@ const fields: Record<Field, HTMLInputElement> = {
   displayName: document.querySelector<HTMLInputElement>('#displayName')!,
   authKey: document.querySelector<HTMLInputElement>('#authKey')!
 };
+const hotkeyFields: Record<HotkeyAction, HTMLInputElement> = {
+  techPause: document.querySelector<HTMLInputElement>('#hotkey-techPause')!,
+  timeoutLeft: document.querySelector<HTMLInputElement>('#hotkey-timeoutLeft')!,
+  timeoutRight: document.querySelector<HTMLInputElement>('#hotkey-timeoutRight')!,
+  spikePlanted: document.querySelector<HTMLInputElement>('#hotkey-spikePlanted')!
+};
+const HOTKEY_ACTIONS = Object.keys(hotkeyFields) as HotkeyAction[];
 let hasAuthKey = false;
 
 function showErrors(errors: FieldErrors = {}): void {
@@ -65,8 +81,16 @@ function showErrors(errors: FieldErrors = {}): void {
     document.getElementById(`${name}-error`)!.textContent = errors[name] ?? '';
     fields[name].setAttribute('aria-invalid', String(Boolean(errors[name])));
   }
+  hotkeysError.textContent = errors.hotkeys ?? '';
+  for (const action of HOTKEY_ACTIONS) {
+    hotkeyFields[action].setAttribute(
+      'aria-invalid',
+      String(Boolean(errors.hotkeys)),
+    );
+  }
   const first = (Object.keys(fields) as Field[]).find((name) => errors[name]);
   if (first) fields[first].focus();
+  else if (errors.hotkeys) hotkeyFields.techPause.focus();
 }
 
 function updateHint(): void {
@@ -87,6 +111,9 @@ async function initialize(): Promise<void> {
     fields.serverUrl.value = saved.serverUrl;
     fields.groupCode.value = saved.groupCode;
     fields.displayName.value = saved.displayName;
+    for (const action of HOTKEY_ACTIONS) {
+      hotkeyFields[action].value = saved.hotkeys?.[action] ?? '';
+    }
     hasAuthKey = saved.hasAuthKey;
     updateHint();
     if (saved.warning) statusMessage.textContent = saved.warning;
@@ -107,7 +134,13 @@ form.addEventListener('submit', async (event) => {
     serverUrl: fields.serverUrl.value,
     groupCode: fields.groupCode.value,
     displayName: fields.displayName.value,
-    authKey: fields.authKey.value
+    authKey: fields.authKey.value,
+    hotkeys: {
+      techPause: hotkeyFields.techPause.value.trim(),
+      timeoutLeft: hotkeyFields.timeoutLeft.value.trim(),
+      timeoutRight: hotkeyFields.timeoutRight.value.trim(),
+      spikePlanted: hotkeyFields.spikePlanted.value.trim()
+    }
   };
   try {
     const result = await window.obvs.saveSettings(values);
@@ -119,6 +152,9 @@ form.addEventListener('submit', async (event) => {
     fields.serverUrl.value = values.serverUrl.trim();
     fields.groupCode.value = values.groupCode.trim();
     fields.displayName.value = values.displayName.trim();
+    for (const action of HOTKEY_ACTIONS) {
+      hotkeyFields[action].value = values.hotkeys[action];
+    }
     hasAuthKey = values.authKey.length > 0 || hasAuthKey;
     fields.authKey.value = '';
     updateHint();

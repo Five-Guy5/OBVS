@@ -1,5 +1,5 @@
-
 import type { SessionStatus } from './session';
+import type { HotkeyBindings } from './settings';
 
 const { contextBridge, ipcRenderer } =
   require('electron') as typeof import('electron');
@@ -9,6 +9,7 @@ type PreloadSettingsInput = {
   groupCode: string;
   displayName: string;
   authKey: string;
+  hotkeys: HotkeyBindings;
 };
 
 contextBridge.exposeInMainWorld('obvs', {

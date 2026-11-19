@@ -15,6 +15,7 @@ const valid = {
 };
 
 let userData;
+let blockedHotkey = null;
 const credentialStore = new Map(); // stands in for the OS credential store, survives "restarts"
 
 const fakeKeytar = {
@@ -36,10 +37,24 @@ async function launchApp() {
   class FakeWindow {
     constructor() {
       win = this;
-      this.webContents = { setWindowOpenHandler() {}, on() {} };
+      this.webContents = {
+        setWindowOpenHandler() {},
+        on() {},
+        send() {},
+        executeJavaScript() { return Promise.resolve(); },
+        isLoading() { return false; }
+      };
     }
     setMenuBarVisibility() {}
+    setAlwaysOnTop() {}
+    setIgnoreMouseEvents() {}
+    setPosition() {}
+    showInactive() {}
+    hide() {}
+    destroy() {}
+    isDestroyed() { return false; }
     loadFile() { return Promise.resolve(); }
+    loadURL() { return Promise.resolve(); }
     on() {}
     static getAllWindows() { return []; }
   }
@@ -53,6 +68,15 @@ async function launchApp() {
       quit() {}
     },
     BrowserWindow: FakeWindow,
+    globalShortcut: {
+      register: (accelerator) => accelerator !== blockedHotkey,
+      unregisterAll() {}
+    },
+    screen: {
+      getPrimaryDisplay: () => ({
+        workArea: { x: 0, y: 0, width: 1920, height: 1080 }
+      })
+    },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }
   };
 
@@ -89,6 +113,7 @@ function allFilesText() {
 beforeEach(() => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'obvs-test-'));
   credentialStore.clear();
+  blockedHotkey = null;
 });
 afterEach(() => {
   fs.rmSync(userData, { recursive: true, force: true });
@@ -113,8 +138,43 @@ test('settings and key survive a restart', async () => {
   assert.equal(loaded.serverUrl, valid.serverUrl);
   assert.equal(loaded.groupCode, valid.groupCode);
   assert.equal(loaded.displayName, valid.displayName);
+  assert.equal(loaded.hotkeys.techPause, 'Control+Shift+1');
   assert.equal(loaded.hasAuthKey, true);
   assert.ok(!JSON.stringify(loaded).includes(SECRET), 'load must not return the secret');
+});
+
+test('custom hotkeys survive a restart', async () => {
+  const first = await launchApp();
+  await first.save({
+    ...valid,
+    hotkeys: {
+      techPause: 'Control+Alt+T',
+      timeoutLeft: 'Control+Alt+1',
+      timeoutRight: 'Control+Alt+2',
+      spikePlanted: 'Control+Alt+3'
+    }
+  });
+
+  const loaded = await (await launchApp()).load();
+  assert.equal(loaded.hotkeys.techPause, 'Control+Alt+T');
+  assert.equal(loaded.hotkeys.spikePlanted, 'Control+Alt+3');
+});
+
+test('warns when a saved hotkey cannot be registered at startup', async () => {
+  const first = await launchApp();
+  await first.save({
+    ...valid,
+    hotkeys: {
+      techPause: 'Control+Alt+T',
+      timeoutLeft: 'Control+Alt+1',
+      timeoutRight: 'Control+Alt+2',
+      spikePlanted: 'Control+Alt+3'
+    }
+  });
+
+  blockedHotkey = 'Control+Alt+T';
+  const loaded = await (await launchApp()).load();
+  assert.match(loaded.warning, /hotkey/i);
 });
 
 test('invalid settings are rejected and nothing is saved', async () => {
