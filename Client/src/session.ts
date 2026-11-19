@@ -23,6 +23,10 @@ const MAX_OUTBOX_AGE_MS = 10 * 60_000;
 // The logon response has no machine-readable rejection code; the Server's
 // wording is the only signal that the Match cannot be resumed.
 const MATCH_SECRET_REJECTION = 'Match Secret rejected or missing.';
+const OTHER_OBSERVER_REJECTION = 'Another Observer is already logged on for this group code.';
+// A half-open old socket can hold the Match for up to two heartbeats; retry
+// long enough to cover that, then accept that another Observer took over.
+const MAX_RESUME_REJECTIONS = 10;
 
 export type SessionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'stopping';
 
@@ -496,9 +500,21 @@ export class Session {
 
   #rejected(reason: string): void {
     this.#clearReconnectTimer();
-    this.#reconnectAttempt = 0;
     const socket = this.#detachSocket();
     this.#autoPending = false;
+
+    // While resuming, the Server may still see our half-open socket from
+    // before the outage. Retry until its heartbeat clears it.
+    if (this.#matchSecret !== null &&
+        reason === OTHER_OBSERVER_REJECTION &&
+        this.#reconnectAttempt <= MAX_RESUME_REJECTIONS) {
+      this.#update('reconnecting', reason);
+      this.#scheduleReconnect();
+      socket?.close();
+      return;
+    }
+
+    this.#reconnectAttempt = 0;
 
     // A rejected resume cannot be retried; the Server's Match is gone or held
     // by another Observer. An auth-key rejection keeps the log for a manual try.

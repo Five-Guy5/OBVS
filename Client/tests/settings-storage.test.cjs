@@ -50,6 +50,7 @@ async function launchApp() {
     setPosition() {}
     showInactive() {}
     hide() {}
+    destroy() {}
     isDestroyed() { return false; }
     loadFile() { return Promise.resolve(); }
     loadURL() { return Promise.resolve(); }

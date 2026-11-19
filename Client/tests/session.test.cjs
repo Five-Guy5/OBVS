@@ -518,6 +518,31 @@ test('a rejected resume discards the stored secret and outbox', () => {
   assert.equal('matchSecret' in next.sent[0], false);
 });
 
+test('keeps retrying a resume while the server still sees the old socket', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+  session.restore({ matchSecret: 'old-secret', events: [] });
+
+  session.resume();
+  sockets[0].open();
+  sockets[0].receive({
+    accepted: false,
+    reason: 'Another Observer is already logged on for this group code.'
+  });
+
+  assert.equal(session.status.state, 'reconnecting');
+  assert.match(session.status.error, /Another Observer/);
+
+  t.mock.timers.tick(1000);
+  assert.equal(sockets.length, 2);
+  sockets[1].open();
+  sockets[1].receive(accepted);
+
+  assert.equal(session.status.state, 'live');
+  assert.equal(sockets[1].sent[0].matchSecret, 'old-secret');
+});
+
 test('manual actions emit ingest events only while a session is active', () => {
   const { session, sockets } = createSession();
   assert.equal(session.emitManual('tech_pause_toggle'), false);
