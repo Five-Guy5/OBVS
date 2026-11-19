@@ -418,6 +418,7 @@ app.whenReady().then(async () => {
   if (hotkeyError !== null) {
     hotkeyWarning = `Saved hotkeys could not be registered; defaults are active. ${hotkeyError}`;
     console.error(`[hotkeys] ${hotkeyError}`);
+    showToast('Some hotkeys are unavailable; open settings.');
   }
 
   try {
