@@ -572,6 +572,23 @@ test('does not restore a secret saved for another group', () => {
   assert.equal('matchSecret' in socket.sent[0], false);
 });
 
+test('changing the group code drops a live session and its outbox', () => {
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+  goLive(session, sockets);
+
+  session.setConfig({ ...config, groupCode: 'other_group' });
+
+  assert.equal(session.status.state, 'idle');
+  assert.deepEqual(outbox.last(), { cleared: true });
+
+  session.connect();
+  const socket = sockets.at(-1);
+  socket.open();
+  assert.equal('matchSecret' in socket.sent[0], false);
+  assert.equal(socket.sent[0].groupCode, 'other_group');
+});
+
 test('manual actions emit ingest events only while a session is active', () => {
   const { session, sockets } = createSession();
   assert.equal(session.emitManual('tech_pause_toggle'), 'none');
