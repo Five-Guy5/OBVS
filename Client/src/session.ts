@@ -20,6 +20,9 @@ const RECONNECT_INITIAL_MS = 1_000;
 const RECONNECT_MAX_MS = 10_000;
 const MAX_OUTBOX_EVENTS = 10_000;
 const MAX_OUTBOX_AGE_MS = 10 * 60_000;
+// The logon response has no machine-readable rejection code; the Server's
+// wording is the only signal that the Match cannot be resumed.
+const MATCH_SECRET_REJECTION = 'Match Secret rejected or missing.';
 
 export type SessionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'stopping';
 
@@ -61,8 +64,9 @@ export interface SessionOptions {
 
 /**
  * Owns the Client-side match session: GEP triggers, logon, event relay, and
- * manual Connect/Disconnect. Events stay in a persistent outbox for the whole
- * Match, so a reconnect re-sends them and the Server drops them by event ID.
+ * manual Connect/Disconnect. The outbox keeps the latest 10 minutes / 10,000
+ * events of the Match, so a reconnect re-sends them and the Server drops them
+ * by event ID.
  */
 export class Session {
   readonly #options: SessionOptions;
@@ -165,7 +169,7 @@ export class Session {
   }
 
   /** Emit a manual ingest event; false means no Match is active. */
-  manual(action: ManualAction): boolean {
+  emitManual(action: ManualAction): boolean {
     if (!this.#isActive()) return false;
     this.#relay(makeEvent('manual', { action }));
     return true;
@@ -279,9 +283,7 @@ export class Session {
   }
 
   #connectionFailed(message: string): void {
-    const socket = this.#socket;
-    this.#socket = null;
-    this.#sentIds.clear();
+    const socket = this.#detachSocket();
     socket?.close();
 
     if (this.#state === 'idle') return;
@@ -455,7 +457,7 @@ export class Session {
         this.#outboxIds.delete(event.eventId);
         this.#sentIds.delete(event.eventId);
       }
-      this.#setWarning('Event buffer is full; the oldest events were dropped.');
+      this.#setWarning('Event buffer limit reached; the oldest events were dropped.');
     }
   }
 
@@ -495,14 +497,12 @@ export class Session {
   #rejected(reason: string): void {
     this.#clearReconnectTimer();
     this.#reconnectAttempt = 0;
-    const socket = this.#socket;
-    this.#socket = null;
-    this.#sentIds.clear();
+    const socket = this.#detachSocket();
     this.#autoPending = false;
 
     // A rejected resume cannot be retried; the Server's Match is gone or held
     // by another Observer. An auth-key rejection keeps the log for a manual try.
-    if (reason.includes('Match Secret')) this.#discardSession();
+    if (reason === MATCH_SECRET_REJECTION) this.#discardSession();
 
     this.#update('idle', reason);
     socket?.close();
@@ -511,11 +511,16 @@ export class Session {
   #fail(message: string): void {
     this.#clearReconnectTimer();
     this.#reconnectAttempt = 0;
+    const socket = this.#detachSocket();
+    this.#update('idle', message);
+    socket?.close();
+  }
+
+  #detachSocket(): SocketLike | null {
     const socket = this.#socket;
     this.#socket = null;
     this.#sentIds.clear();
-    this.#update('idle', message);
-    socket?.close();
+    return socket;
   }
 
   #discardSession(): void {

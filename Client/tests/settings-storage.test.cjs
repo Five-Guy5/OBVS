@@ -46,6 +46,7 @@ async function launchApp() {
     }
     setMenuBarVisibility() {}
     setAlwaysOnTop() {}
+    setIgnoreMouseEvents() {}
     setPosition() {}
     showInactive() {}
     hide() {}

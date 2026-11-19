@@ -50,6 +50,8 @@ let currentHotkeys: HotkeyBindings = { ...DEFAULT_HOTKEYS };
 let saving = false;
 let gepListening = false;
 let gepAttached = false;
+let sessionRestored = false;
+const pendingGep: Array<{ kind: 'info' | 'event'; update: GepUpdate }> = [];
 
 const outbox = createFileOutbox(() => join(app.getPath('userData'), 'outbox.json'));
 
@@ -175,6 +177,7 @@ function createToastWindow(): void {
   });
   toastWindow = win;
   win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(true);
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(TOAST_HTML)}`);
   win.on('closed', () => { if (toastWindow === win) toastWindow = null; });
 }
@@ -208,7 +211,7 @@ function showToast(message: string): void {
 
 function triggerManual(hotkey: HotkeyAction): void {
   const entry = MANUAL_ACTIONS[hotkey];
-  const sent = session.manual(entry.action);
+  const sent = session.emitManual(entry.action);
   showToast(sent ? entry.message : 'No active match');
 }
 
@@ -251,6 +254,16 @@ function setupGep(): void {
   attachGep();
 }
 
+/** Hold GEP updates until the stored Match Secret and outbox are restored. */
+function deliverGep(kind: 'info' | 'event', update: GepUpdate): void {
+  if (!sessionRestored) {
+    if (pendingGep.length < 1_000) pendingGep.push({ kind, update });
+    return;
+  }
+  if (kind === 'info') session.handleInfo(update);
+  else session.handleEvent(update);
+}
+
 function attachGep(): void {
   if (gepAttached) return;
   const gep = (app.overwolf.packages as unknown as { gep?: GepApi }).gep;
@@ -267,11 +280,11 @@ function attachGep(): void {
   });
   gep.on('new-info-update', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session.handleInfo(data);
+    deliverGep('info', data);
   });
   gep.on('new-game-event', (_event, gameId, data) => {
     if (gameId !== VALORANT_GAME_ID) return;
-    session.handleEvent(data);
+    deliverGep('event', data);
   });
   gep.on('error', (_event, gameId, error) => {
     console.error(`[gep] game ${gameId}: ${error}`);
@@ -362,7 +375,14 @@ function createWindow(): void {
     win.webContents.send('session:status', session.status);
   });
   void win.loadFile(join(__dirname, '../index.html'));
-  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+    // The hidden toast window would otherwise keep the app alive after the
+    // settings window closes.
+    if (process.platform !== 'darwin' && toastWindow && !toastWindow.isDestroyed()) {
+      toastWindow.destroy();
+    }
+  });
 }
 
 app.whenReady().then(async () => {
@@ -381,6 +401,12 @@ app.whenReady().then(async () => {
     if (stored?.matchSecret) session.resume();
   } catch (error) {
     console.error(`[outbox] could not load stored session: ${String(error)}`);
+  } finally {
+    sessionRestored = true;
+    for (const { kind, update } of pendingGep.splice(0)) {
+      if (kind === 'info') session.handleInfo(update);
+      else session.handleEvent(update);
+    }
   }
 
   ipcMain.handle('settings:load', (event) => {
@@ -419,7 +445,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (!mainWindow) createWindow();
 });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

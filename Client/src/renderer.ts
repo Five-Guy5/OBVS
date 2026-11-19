@@ -1,5 +1,6 @@
 // This file is loaded as a classic browser script, not a CommonJS module, so
-// it cannot import even type-only symbols. Keep these in sync with session.ts.
+// it cannot import even type-only symbols. Keep these in sync with session.ts
+// and settings.ts.
 type SessionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'stopping';
 interface SessionStatus {
   state: SessionState;

@@ -520,11 +520,11 @@ test('a rejected resume discards the stored secret and outbox', () => {
 
 test('manual actions emit ingest events only while a session is active', () => {
   const { session, sockets } = createSession();
-  assert.equal(session.manual('tech_pause_toggle'), false);
+  assert.equal(session.emitManual('tech_pause_toggle'), false);
 
   const socket = goLive(session, sockets);
   const before = socket.sent.length;
-  assert.equal(session.manual('timeout_left'), true);
+  assert.equal(session.emitManual('timeout_left'), true);
 
   const manual = socket.sent.slice(before).find((event) => event.type === 'manual');
   assert.deepEqual(manual.payload, { action: 'timeout_left' });
