@@ -23,6 +23,13 @@ function title(text: string): HTMLElement {
   return heading;
 }
 
+const waiting = (): HTMLElement => title("Waiting for match…");
+
+// F.3: a page without an active Match shows a placeholder, never live data.
+function pageFor(liveTitle: string): Page {
+  return (snapshot) => (snapshot.match === null ? waiting() : title(liveTitle));
+}
+
 function show(value: string | number | null): string {
   return value === null ? MISSING : String(value);
 }
@@ -57,18 +64,20 @@ function header(snapshot: BroadcastSnapshot, match: MatchSnapshot): HTMLElement 
 
 export const liveMatchPage: Page = (snapshot) => {
   if (snapshot.match === null) {
-    return title("Live Match");
+    return waiting();
   }
 
   const [left, right] = snapshot.match.teams;
   return el("div", "safe-area", header(snapshot, snapshot.match), teamPanels(left), teamPanels(right));
 };
 
-export const agentSelectPage: Page = () => title("Agent Select");
+export const agentSelectPage = pageFor("Agent Select");
 
 export const autoswitchPage: Page = (snapshot) =>
-  snapshot.match !== null && snapshot.match.round.number === 0
-    ? agentSelectPage(snapshot)
-    : liveMatchPage(snapshot);
+  snapshot.match === null
+    ? waiting()
+    : snapshot.match.round.number === 0
+      ? agentSelectPage(snapshot)
+      : liveMatchPage(snapshot);
 
-export const timeoutPage: Page = () => title("Timeout / Tech Pause");
+export const timeoutPage = pageFor("Timeout / Tech Pause");
