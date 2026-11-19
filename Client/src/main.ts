@@ -36,17 +36,34 @@ body { margin: 0; background: #111; color: #fff; font: 14px system-ui, sans-seri
 #toast { padding: 20px 24px; text-align: center; }
 </style></head><body><div id="toast"></div></body></html>`;
 
-const MANUAL_ACTIONS: Record<HotkeyAction, { action: ManualAction; message: string }> = {
-  techPause: { action: 'tech_pause_toggle', message: 'Tech pause toggled' },
-  timeoutLeft: { action: 'timeout_left', message: 'Left timeout sent' },
-  timeoutRight: { action: 'timeout_right', message: 'Right timeout sent' },
-  spikePlanted: { action: 'spike_planted', message: 'Spike planted sent' },
+const MANUAL_ACTIONS: Record<
+  HotkeyAction,
+  { action: ManualAction; sent: string; queued: string }
+> = {
+  techPause: {
+    action: 'tech_pause_toggle',
+    sent: 'Tech pause toggled',
+    queued: 'Tech pause queued'
+  },
+  timeoutLeft: { action: 'timeout_left', sent: 'Left timeout sent', queued: 'Left timeout queued' },
+  timeoutRight: {
+    action: 'timeout_right',
+    sent: 'Right timeout sent',
+    queued: 'Right timeout queued'
+  },
+  spikePlanted: {
+    action: 'spike_planted',
+    sent: 'Spike planted sent',
+    queued: 'Spike planted queued'
+  },
 };
 
 let mainWindow: BrowserWindow | null = null;
 let toastWindow: BrowserWindow | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let currentHotkeys: HotkeyBindings = { ...DEFAULT_HOTKEYS };
+let hotkeyWarning: string | undefined;
+let lastWarning: string | null = null;
 let saving = false;
 let gepListening = false;
 let gepAttached = false;
@@ -125,7 +142,7 @@ async function loadSettings() {
     displayName: stored?.displayName ?? defaultName,
     hotkeys: stored?.hotkeys ?? { ...DEFAULT_HOTKEYS },
     hasAuthKey, // Never send the stored secret back to the UI.
-    warning
+    warning: [warning, hotkeyWarning].filter(Boolean).join(' ') || undefined
   };
 }
 
@@ -152,6 +169,9 @@ async function refreshSessionConfig(): Promise<PublicSettings | null> {
 }
 
 function publishStatus(status: SessionStatus): void {
+  // The settings window may be behind the game; surface buffer warnings as a toast.
+  if (status.warning && status.warning !== lastWarning) showToast(status.warning);
+  lastWarning = status.warning;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('session:status', status);
   }
@@ -211,8 +231,9 @@ function showToast(message: string): void {
 
 function triggerManual(hotkey: HotkeyAction): void {
   const entry = MANUAL_ACTIONS[hotkey];
-  const sent = session.emitManual(entry.action);
-  showToast(sent ? entry.message : 'No active match');
+  const result = session.emitManual(entry.action);
+  if (result === 'none') showToast('No active match');
+  else showToast(result === 'sent' ? entry.sent : entry.queued);
 }
 
 /** Register every binding, restoring the previous set if any registration fails. */
@@ -331,6 +352,7 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
       });
       await rename(tempFile, file);
       await refreshSessionConfig();
+      hotkeyWarning = undefined;
       return { ok: true };
     } catch {
       if (keyWasUpdated) {
@@ -393,12 +415,14 @@ app.whenReady().then(async () => {
   createToastWindow();
   const settings = await refreshSessionConfig();
   const hotkeyError = applyHotkeys(settings?.hotkeys ?? DEFAULT_HOTKEYS);
-  if (hotkeyError !== null) console.error(`[hotkeys] ${hotkeyError}`);
+  if (hotkeyError !== null) {
+    hotkeyWarning = `Saved hotkeys could not be registered; defaults are active. ${hotkeyError}`;
+    console.error(`[hotkeys] ${hotkeyError}`);
+  }
 
   try {
     const stored = await outbox.load();
-    session.restore(stored);
-    if (stored?.matchSecret) session.resume();
+    if (session.restore(stored)) session.resume();
   } catch (error) {
     console.error(`[outbox] could not load stored session: ${String(error)}`);
   } finally {

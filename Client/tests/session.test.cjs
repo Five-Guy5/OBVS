@@ -394,6 +394,8 @@ class FakeOutbox {
 
   save(state) {
     this.saved.push({
+      serverUrl: state.serverUrl,
+      groupCode: state.groupCode,
       matchSecret: state.matchSecret,
       eventIds: state.events.map((event) => event.eventId)
     });
@@ -419,6 +421,15 @@ function storedEvent(eventId) {
   };
 }
 
+function storedSession(matchSecret, events) {
+  return {
+    serverUrl: config.serverUrl,
+    groupCode: config.groupCode,
+    matchSecret,
+    events
+  };
+}
+
 test('buffers events through an outage and flushes them in order after re-logon', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const outbox = new FakeOutbox();
@@ -429,6 +440,7 @@ test('buffers events through an outage and flushes them in order after re-logon'
   assert.equal(session.status.state, 'reconnecting');
   session.handleInfo({ feature: 'match_info', key: 'round_number', value: '2' });
   session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'combat' });
+  assert.equal(session.emitManual('timeout_right'), 'queued');
   const buffered = outbox.last().eventIds.slice();
 
   t.mock.timers.tick(1000);
@@ -467,7 +479,7 @@ test('restores a stored session and resumes with the match secret', (t) => {
   const outbox = new FakeOutbox();
   const { session, sockets } = createSession({ outbox });
 
-  session.restore({ matchSecret: 'restored-secret', events: [storedEvent('stored-1')] });
+  session.restore(storedSession('restored-secret', [storedEvent('stored-1')]));
   session.resume();
   assert.equal(session.status.state, 'connecting');
 
@@ -503,7 +515,7 @@ test('discards the secret and outbox when the match ends', () => {
 test('a rejected resume discards the stored secret and outbox', () => {
   const outbox = new FakeOutbox();
   const { session, sockets } = createSession({ outbox });
-  session.restore({ matchSecret: 'stale-secret', events: [storedEvent('stale-1')] });
+  session.restore(storedSession('stale-secret', [storedEvent('stale-1')]));
 
   session.resume();
   sockets[0].open();
@@ -522,7 +534,7 @@ test('keeps retrying a resume while the server still sees the old socket', (t) =
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const outbox = new FakeOutbox();
   const { session, sockets } = createSession({ outbox });
-  session.restore({ matchSecret: 'old-secret', events: [] });
+  session.restore(storedSession('old-secret', []));
 
   session.resume();
   sockets[0].open();
@@ -543,13 +555,30 @@ test('keeps retrying a resume while the server still sees the old socket', (t) =
   assert.equal(sockets[1].sent[0].matchSecret, 'old-secret');
 });
 
+test('does not restore a secret saved for another group', () => {
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+  session.restore({
+    serverUrl: config.serverUrl,
+    groupCode: 'other_group',
+    matchSecret: 'other-secret',
+    events: [storedEvent('other-1')]
+  });
+
+  assert.deepEqual(outbox.last(), { cleared: true });
+  session.connect();
+  const socket = sockets[0];
+  socket.open();
+  assert.equal('matchSecret' in socket.sent[0], false);
+});
+
 test('manual actions emit ingest events only while a session is active', () => {
   const { session, sockets } = createSession();
-  assert.equal(session.emitManual('tech_pause_toggle'), false);
+  assert.equal(session.emitManual('tech_pause_toggle'), 'none');
 
   const socket = goLive(session, sockets);
   const before = socket.sent.length;
-  assert.equal(session.emitManual('timeout_left'), true);
+  assert.equal(session.emitManual('timeout_left'), 'sent');
 
   const manual = socket.sent.slice(before).find((event) => event.type === 'manual');
   assert.deepEqual(manual.payload, { action: 'timeout_left' });

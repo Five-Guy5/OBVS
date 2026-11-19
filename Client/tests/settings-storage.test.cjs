@@ -15,6 +15,7 @@ const valid = {
 };
 
 let userData;
+let blockedHotkey = null;
 const credentialStore = new Map(); // stands in for the OS credential store, survives "restarts"
 
 const fakeKeytar = {
@@ -67,7 +68,10 @@ async function launchApp() {
       quit() {}
     },
     BrowserWindow: FakeWindow,
-    globalShortcut: { register: () => true, unregisterAll() {} },
+    globalShortcut: {
+      register: (accelerator) => accelerator !== blockedHotkey,
+      unregisterAll() {}
+    },
     screen: {
       getPrimaryDisplay: () => ({
         workArea: { x: 0, y: 0, width: 1920, height: 1080 }
@@ -109,6 +113,7 @@ function allFilesText() {
 beforeEach(() => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'obvs-test-'));
   credentialStore.clear();
+  blockedHotkey = null;
 });
 afterEach(() => {
   fs.rmSync(userData, { recursive: true, force: true });
@@ -153,6 +158,23 @@ test('custom hotkeys survive a restart', async () => {
   const loaded = await (await launchApp()).load();
   assert.equal(loaded.hotkeys.techPause, 'Control+Alt+T');
   assert.equal(loaded.hotkeys.spikePlanted, 'Control+Alt+3');
+});
+
+test('warns when a saved hotkey cannot be registered at startup', async () => {
+  const first = await launchApp();
+  await first.save({
+    ...valid,
+    hotkeys: {
+      techPause: 'Control+Alt+T',
+      timeoutLeft: 'Control+Alt+1',
+      timeoutRight: 'Control+Alt+2',
+      spikePlanted: 'Control+Alt+3'
+    }
+  });
+
+  blockedHotkey = 'Control+Alt+T';
+  const loaded = await (await launchApp()).load();
+  assert.match(loaded.warning, /hotkey/i);
 });
 
 test('invalid settings are rejected and nothing is saved', async () => {

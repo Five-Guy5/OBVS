@@ -4,6 +4,9 @@ import type { IngestEvent } from '@obvs/protocol';
 
 /** The Client's durable session state: the resume secret and unsent event log. */
 export interface StoredOutbox {
+  /** Connection the secret belongs to; a mismatch must not be resumed. */
+  serverUrl: string | null;
+  groupCode: string | null;
   matchSecret: string | null;
   events: IngestEvent[];
 }
@@ -68,7 +71,12 @@ export function createFileOutbox(filePath: () => string): OutboxStore & {
         const secret = record.matchSecret;
         if (secret !== null && secret !== undefined && typeof secret !== 'string') return null;
         if (!Array.isArray(record.events)) return null;
+        const serverUrl = record.serverUrl;
+        const groupCode = record.groupCode;
+        if (!isOptionalText(serverUrl) || !isOptionalText(groupCode)) return null;
         return {
+          serverUrl: typeof serverUrl === 'string' ? serverUrl : null,
+          groupCode: typeof groupCode === 'string' ? groupCode : null,
           matchSecret: typeof secret === 'string' ? secret : null,
           events: record.events.filter(isIngestEvent),
         };
@@ -78,7 +86,12 @@ export function createFileOutbox(filePath: () => string): OutboxStore & {
     },
 
     save(state: StoredOutbox): void {
-      latest = { matchSecret: state.matchSecret, events: state.events };
+      latest = {
+        serverUrl: state.serverUrl,
+        groupCode: state.groupCode,
+        matchSecret: state.matchSecret,
+        events: state.events,
+      };
       version += 1;
       schedule();
     },
@@ -126,4 +139,8 @@ function isIngestEvent(value: unknown): value is IngestEvent {
     typeof event.payload === 'object' &&
     event.payload !== null
   );
+}
+
+function isOptionalText(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'string';
 }

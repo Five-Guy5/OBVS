@@ -29,10 +29,17 @@ test('persists and reloads the ordered outbox and match secret', async () => {
     const file = path.join(directory, 'outbox.json');
     const store = createFileOutbox(() => file);
 
-    store.save({ matchSecret: 'secret-1', events: [event('a'), event('b')] });
+    store.save({
+      serverUrl: 'https://example.test/ingest',
+      groupCode: 'group_1',
+      matchSecret: 'secret-1',
+      events: [event('a'), event('b')]
+    });
     await store.flush();
 
     const loaded = await createFileOutbox(() => file).load();
+    assert.equal(loaded.serverUrl, 'https://example.test/ingest');
+    assert.equal(loaded.groupCode, 'group_1');
     assert.equal(loaded.matchSecret, 'secret-1');
     assert.deepEqual(loaded.events.map((entry) => entry.eventId), ['a', 'b']);
 
@@ -58,6 +65,8 @@ test('drops malformed stored events', async () => {
   await withTempDir(async (directory) => {
     const file = path.join(directory, 'outbox.json');
     await fs.writeFile(file, JSON.stringify({
+      serverUrl: 'https://example.test/ingest',
+      groupCode: 'group_1',
       matchSecret: 'secret-1',
       events: [event('a'), { eventId: 'missing-fields' }]
     }));

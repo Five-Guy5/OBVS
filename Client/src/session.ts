@@ -106,11 +106,16 @@ export class Session {
     this.#config = config;
 
     // A different server or group code cannot resume the old Match.
-    if (previous && this.#state === 'idle' &&
-        (!config || previous.serverUrl !== config.serverUrl ||
-         previous.groupCode !== config.groupCode)) {
-      this.#discardSession();
-      this.#update('idle', null);
+    if (previous && (!config || previous.serverUrl !== config.serverUrl ||
+        previous.groupCode !== config.groupCode)) {
+      if (this.#matchSecret !== null || this.#outbox.length > 0) {
+        if (this.#state === 'idle') {
+          this.#discardSession();
+          this.#update('idle', null);
+        } else {
+          this.#stop();
+        }
+      }
     }
 
     // Settings may load after GEP already reported agent select/match start.
@@ -120,12 +125,22 @@ export class Session {
   }
 
   /** Load the secret and event log saved by a previous process. */
-  restore(stored: StoredOutbox | null): void {
-    if (!stored || this.#state !== 'idle') return;
+  restore(stored: StoredOutbox | null): boolean {
+    if (!stored || this.#state !== 'idle') return false;
+    const config = this.#config;
+    if (!config) return false;
+
+    // A secret belongs to one server and group code; never replay it elsewhere.
+    if (stored.serverUrl !== config.serverUrl || stored.groupCode !== config.groupCode) {
+      this.#options.outbox?.clear();
+      return false;
+    }
+
     this.#matchSecret = stored.matchSecret;
     for (const event of stored.events) this.#addToOutbox(event, false);
     this.#pruneOutbox();
     this.#persist();
+    return true;
   }
 
   /** Resume a restored live Match without waiting for another GEP trigger. */
@@ -172,11 +187,13 @@ export class Session {
     }
   }
 
-  /** Emit a manual ingest event; false means no Match is active. */
-  emitManual(action: ManualAction): boolean {
-    if (!this.#isActive()) return false;
-    this.#relay(makeEvent('manual', { action }));
-    return true;
+  /** Emit a manual ingest event; the result says whether it reached the socket. */
+  emitManual(action: ManualAction): 'sent' | 'queued' | 'none' {
+    if (!this.#isActive()) return 'none';
+    const event = makeEvent('manual', { action });
+    this.#addToOutbox(event);
+    if (this.#state === 'live') this.#drain();
+    return this.#sentIds.has(event.eventId) ? 'sent' : 'queued';
   }
 
   handleInfo(update: GepUpdate): void {
@@ -557,7 +574,12 @@ export class Session {
       store.clear();
       return;
     }
-    store.save({ matchSecret: this.#matchSecret, events: this.#outbox });
+    store.save({
+      serverUrl: this.#config?.serverUrl ?? null,
+      groupCode: this.#config?.groupCode ?? null,
+      matchSecret: this.#matchSecret,
+      events: this.#outbox,
+    });
   }
 
   #isActive(): boolean {
