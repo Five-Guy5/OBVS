@@ -1,9 +1,10 @@
-
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron';
+import type { ManualAction } from '@obvs/protocol';
 import * as keytar from 'keytar';
 import { userInfo } from 'node:os';
 import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createFileOutbox } from './outbox';
 import {
   Session,
   type GepUpdate,
@@ -11,7 +12,16 @@ import {
   type SessionStatus,
   type SocketLike,
 } from './session';
-import { validateSettings, type PublicSettings, type SaveResult } from './settings';
+import {
+  DEFAULT_HOTKEYS,
+  HOTKEY_ACTIONS,
+  normalizeHotkeys,
+  validateSettings,
+  type HotkeyAction,
+  type HotkeyBindings,
+  type PublicSettings,
+  type SaveResult,
+} from './settings';
 
 const SERVICE = 'io.obvs.client';
 const ACCOUNT = 'server-auth-key';
@@ -19,16 +29,36 @@ const ACCOUNT = 'server-auth-key';
 const ALLOW_INSECURE_URL = !app.isPackaged && process.env.OBVS_ALLOW_INSECURE_URL === '1';
 const VALORANT_GAME_ID = 21640; // kGepSupportedGameIds.VALORANT
 const GEP_FEATURES = ['match_info', 'me', 'game_info', 'kill', 'death'];
+const TOAST_WIDTH = 360;
+const TOAST_HEIGHT = 64;
+const TOAST_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin: 0; background: #111; color: #fff; font: 14px system-ui, sans-serif; }
+#toast { padding: 20px 24px; text-align: center; }
+</style></head><body><div id="toast"></div></body></html>`;
+
+const MANUAL_ACTIONS: Record<HotkeyAction, { action: ManualAction; message: string }> = {
+  techPause: { action: 'tech_pause_toggle', message: 'Tech pause toggled' },
+  timeoutLeft: { action: 'timeout_left', message: 'Left timeout sent' },
+  timeoutRight: { action: 'timeout_right', message: 'Right timeout sent' },
+  spikePlanted: { action: 'spike_planted', message: 'Spike planted sent' },
+};
+
 let mainWindow: BrowserWindow | null = null;
+let toastWindow: BrowserWindow | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let currentHotkeys: HotkeyBindings = { ...DEFAULT_HOTKEYS };
 let saving = false;
 let gepListening = false;
 let gepAttached = false;
+
+const outbox = createFileOutbox(() => join(app.getPath('userData'), 'outbox.json'));
 
 const session = new Session({
   clientVersion: app.getVersion(),
   allowInsecure: ALLOW_INSECURE_URL,
   createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
-  onChange: publishStatus
+  onChange: publishStatus,
+  outbox,
 });
 
 // Register before app readiness so Valorant is detected if it is already running.
@@ -68,7 +98,12 @@ async function readSettings(): Promise<PublicSettings | null> {
       typeof s.displayName !== 'string') {
     throw new Error('Invalid settings file.');
   }
-  return { serverUrl: s.serverUrl, groupCode: s.groupCode, displayName: s.displayName };
+  return {
+    serverUrl: s.serverUrl,
+    groupCode: s.groupCode,
+    displayName: s.displayName,
+    hotkeys: normalizeHotkeys(s.hotkeys),
+  };
 }
 
 async function loadSettings() {
@@ -86,23 +121,31 @@ async function loadSettings() {
     serverUrl: stored?.serverUrl ?? '',
     groupCode: stored?.groupCode ?? '',
     displayName: stored?.displayName ?? defaultName,
+    hotkeys: stored?.hotkeys ?? { ...DEFAULT_HOTKEYS },
     hasAuthKey, // Never send the stored secret back to the UI.
     warning
   };
 }
 
-async function loadConnectionConfig(): Promise<SessionConfig | null> {
-  const stored = await readSettings();
-  if (!stored) return null;
-  const authKey = (await keytar.getPassword(SERVICE, ACCOUNT)) ?? '';
-  return { ...stored, authKey };
-}
-
-async function refreshSessionConfig(): Promise<void> {
+async function refreshSessionConfig(): Promise<PublicSettings | null> {
   try {
-    session.setConfig(await loadConnectionConfig());
+    const stored = await readSettings();
+    if (!stored) {
+      session.setConfig(null);
+      return null;
+    }
+    const authKey = (await keytar.getPassword(SERVICE, ACCOUNT)) ?? '';
+    const config: SessionConfig = {
+      serverUrl: stored.serverUrl,
+      groupCode: stored.groupCode,
+      displayName: stored.displayName,
+      authKey,
+    };
+    session.setConfig(config);
+    return stored;
   } catch {
     session.setConfig(null);
+    return null;
   }
 }
 
@@ -110,6 +153,91 @@ function publishStatus(status: SessionStatus): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('session:status', status);
   }
+}
+
+function createToastWindow(): void {
+  const win = new BrowserWindow({
+    width: TOAST_WIDTH,
+    height: TOAST_HEIGHT,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    backgroundColor: '#111111',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  toastWindow = win;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(TOAST_HTML)}`);
+  win.on('closed', () => { if (toastWindow === win) toastWindow = null; });
+}
+
+/** Show confirmation immediately; the pre-created window keeps this under 250 ms. */
+function showToast(message: string): void {
+  const win = toastWindow;
+  if (!win || win.isDestroyed()) return;
+
+  const { workArea } = screen.getPrimaryDisplay();
+  win.setPosition(
+    workArea.x + workArea.width - TOAST_WIDTH - 24,
+    workArea.y + workArea.height - TOAST_HEIGHT - 24,
+  );
+
+  const apply = () => {
+    void win.webContents.executeJavaScript(
+      `document.getElementById('toast').textContent = ${JSON.stringify(message)};`,
+    ).catch(() => undefined);
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', apply);
+  else apply();
+  win.showInactive();
+
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastTimer = null;
+    if (!win.isDestroyed()) win.hide();
+  }, 2_000);
+}
+
+function triggerManual(hotkey: HotkeyAction): void {
+  const entry = MANUAL_ACTIONS[hotkey];
+  const sent = session.manual(entry.action);
+  showToast(sent ? entry.message : 'No active match');
+}
+
+/** Register every binding, restoring the previous set if any registration fails. */
+function applyHotkeys(bindings: HotkeyBindings): string | null {
+  const previous = currentHotkeys;
+  const error = registerHotkeys(bindings);
+  if (error === null) {
+    currentHotkeys = { ...bindings };
+    return null;
+  }
+  registerHotkeys(previous);
+  return error;
+}
+
+function registerHotkeys(bindings: HotkeyBindings): string | null {
+  globalShortcut.unregisterAll();
+  for (const action of HOTKEY_ACTIONS) {
+    try {
+      if (!globalShortcut.register(bindings[action], () => triggerManual(action))) {
+        globalShortcut.unregisterAll();
+        return `Could not register ${bindings[action]}; another app may be using it.`;
+      }
+    } catch {
+      globalShortcut.unregisterAll();
+      return `"${bindings[action]}" is not a valid hotkey.`;
+    }
+  }
+  return null;
 }
 
 function setupGep(): void {
@@ -153,9 +281,15 @@ function attachGep(): void {
 async function saveSettings(input: unknown): Promise<SaveResult> {
   if (saving) return { ok: false, message: 'Already saving settings.' };
   saving = true;
+  const previousHotkeys = { ...currentHotkeys };
+  let hotkeysChanged = false;
   try {
     const { data, errors } = validateSettings(input, ALLOW_INSECURE_URL);
     if (!data || Object.keys(errors).length) return { ok: false, errors };
+
+    const hotkeyError = applyHotkeys(data.hotkeys);
+    if (hotkeyError !== null) return { ok: false, message: hotkeyError };
+    hotkeysChanged = true;
 
     // A blank key means "no key" or "keep the stored key"; only read the
     // credential store when the key is actually being replaced.
@@ -176,7 +310,8 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
       const publicSettings: PublicSettings = {
         serverUrl: data.serverUrl,
         groupCode: data.groupCode,
-        displayName: data.displayName
+        displayName: data.displayName,
+        hotkeys: data.hotkeys
       };
       await writeFile(tempFile, JSON.stringify(publicSettings, null, 2), {
         encoding: 'utf8', mode: 0o600
@@ -190,14 +325,17 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
           if (oldKey === null) await keytar.deletePassword(SERVICE, ACCOUNT);
           else await keytar.setPassword(SERVICE, ACCOUNT, oldKey);
         } catch {
+          applyHotkeys(previousHotkeys);
           return { ok: false, message: 'Save failed and credential rollback failed. Inspect OS credentials.' };
         }
       }
+      applyHotkeys(previousHotkeys);
       return { ok: false, message: 'Could not save settings to disk or credential store.' };
     } finally {
       await rm(tempFile, { force: true }).catch(() => undefined);
     }
   } catch {
+    if (hotkeysChanged) applyHotkeys(previousHotkeys);
     return { ok: false, message: 'Could not access the OS credential store.' };
   } finally {
     saving = false;
@@ -207,7 +345,7 @@ async function saveSettings(input: unknown): Promise<SaveResult> {
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 560,
-    height: 560,
+    height: 720,
     title: 'OBVS Client Settings',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -231,7 +369,19 @@ app.whenReady().then(async () => {
   // Retry if the Overwolf package manager was not exposed at module load.
   setupGep();
   if (!gepListening) console.warn('[gep] Overwolf package manager is unavailable.');
-  await refreshSessionConfig();
+
+  createToastWindow();
+  const settings = await refreshSessionConfig();
+  const hotkeyError = applyHotkeys(settings?.hotkeys ?? DEFAULT_HOTKEYS);
+  if (hotkeyError !== null) console.error(`[hotkeys] ${hotkeyError}`);
+
+  try {
+    const stored = await outbox.load();
+    session.restore(stored);
+    if (stored?.matchSecret) session.resume();
+  } catch (error) {
+    console.error(`[outbox] could not load stored session: ${String(error)}`);
+  }
 
   ipcMain.handle('settings:load', (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized window.');
@@ -265,9 +415,14 @@ app.whenReady().then(async () => {
   createWindow();
 }).catch(console.error);
 
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    void outbox.flush().finally(() => app.quit());
+  }
 });

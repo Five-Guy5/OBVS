@@ -68,7 +68,8 @@ function createSession(options = {}) {
       sockets.push(socket);
       return socket;
     },
-    onChange: (status) => changes.push(status)
+    onChange: (status) => changes.push(status),
+    outbox: options.outbox
   });
   session.setConfig(options.config ?? config);
   return { session, sockets, changes };
@@ -219,7 +220,7 @@ test('a rejected logon shows the reason and stays disconnected', () => {
   socket.open();
   socket.receive({ accepted: false, reason: 'Auth key rejected.' });
 
-  assert.deepEqual(session.status, { state: 'idle', error: 'Auth key rejected.' });
+  assert.deepEqual(session.status, { state: 'idle', error: 'Auth key rejected.', warning: null });
   assert.equal(socket.readyState, 3);
 });
 
@@ -236,7 +237,8 @@ test('a manual connect without settings stays idle with an error', () => {
 
   assert.deepEqual(session.status, {
     state: 'idle',
-    error: 'Save connection settings before connecting.'
+    error: 'Save connection settings before connecting.',
+    warning: null
   });
 });
 
@@ -379,3 +381,172 @@ test('does not emit a new round with the previous phase', () => {
   const round = socket.sent.slice(before).find((event) => event.type === 'round');
   assert.deepEqual(round.payload, { number: 2, phase: 'shopping' });
 });
+
+class FakeOutbox {
+  constructor() {
+    this.saved = [];
+    this.cleared = 0;
+  }
+
+  load() {
+    return Promise.resolve(null);
+  }
+
+  save(state) {
+    this.saved.push({
+      matchSecret: state.matchSecret,
+      eventIds: state.events.map((event) => event.eventId)
+    });
+  }
+
+  clear() {
+    this.cleared += 1;
+    this.saved.push({ cleared: true });
+  }
+
+  last() {
+    return this.saved.at(-1);
+  }
+}
+
+function storedEvent(eventId) {
+  return {
+    protocolVersion: 1,
+    eventId,
+    type: 'scene',
+    capturedAt: new Date().toISOString(),
+    payload: { scene: 'in_game' }
+  };
+}
+
+test('buffers events through an outage and flushes them in order after re-logon', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const outbox = new FakeOutbox();
+  const { session, sockets, changes } = createSession({ outbox });
+  const first = goLive(session, sockets);
+
+  first.close();
+  assert.equal(session.status.state, 'reconnecting');
+  session.handleInfo({ feature: 'match_info', key: 'round_number', value: '2' });
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'combat' });
+  const buffered = outbox.last().eventIds.slice();
+
+  t.mock.timers.tick(1000);
+  assert.equal(sockets.length, 2);
+  const second = sockets[1];
+  second.open();
+  assert.equal(second.sent[0].matchSecret, 'match-secret');
+  second.receive(accepted);
+
+  assert.equal(session.status.state, 'live');
+  assert.deepEqual(
+    second.sent.slice(1).map((event) => event.eventId),
+    buffered,
+    'every buffered event is replayed in capture order'
+  );
+  assert.ok(changes.some((status) => status.state === 'reconnecting'));
+});
+
+test('backs off from 1 s to a 10 s cap between reconnect attempts', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { session, sockets } = createSession();
+  goLive(session, sockets).close();
+
+  const delays = [1000, 2000, 4000, 8000, 10000];
+  for (const delay of delays) {
+    assert.equal(sockets.length, delays.indexOf(delay) + 1);
+    t.mock.timers.tick(delay - 1);
+    assert.equal(sockets.length, delays.indexOf(delay) + 1);
+    t.mock.timers.tick(1);
+    sockets.at(-1).close();
+  }
+});
+
+test('restores a stored session and resumes with the match secret', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+
+  session.restore({ matchSecret: 'restored-secret', events: [storedEvent('stored-1')] });
+  session.resume();
+  assert.equal(session.status.state, 'connecting');
+
+  const socket = sockets[0];
+  socket.open();
+  assert.equal(socket.sent[0].matchSecret, 'restored-secret');
+  socket.receive(accepted);
+
+  assert.equal(session.status.state, 'live');
+  assert.deepEqual(
+    socket.sent.slice(1).map((event) => event.eventId),
+    ['stored-1']
+  );
+});
+
+test('discards the secret and outbox when the match ends', () => {
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+  goLive(session, sockets);
+
+  session.handleInfo({ feature: 'match_info', key: 'round_phase', value: 'game_end' });
+
+  assert.equal(session.status.state, 'idle');
+  assert.ok(outbox.cleared > 0);
+  assert.deepEqual(outbox.last(), { cleared: true });
+
+  session.connect();
+  const next = sockets.at(-1);
+  next.open();
+  assert.equal('matchSecret' in next.sent[0], false);
+});
+
+test('a rejected resume discards the stored secret and outbox', () => {
+  const outbox = new FakeOutbox();
+  const { session, sockets } = createSession({ outbox });
+  session.restore({ matchSecret: 'stale-secret', events: [storedEvent('stale-1')] });
+
+  session.resume();
+  sockets[0].open();
+  sockets[0].receive({ accepted: false, reason: 'Match Secret rejected or missing.' });
+
+  assert.equal(session.status.state, 'idle');
+  assert.deepEqual(outbox.last(), { cleared: true });
+
+  session.connect();
+  const next = sockets.at(-1);
+  next.open();
+  assert.equal('matchSecret' in next.sent[0], false);
+});
+
+test('manual actions emit ingest events only while a session is active', () => {
+  const { session, sockets } = createSession();
+  assert.equal(session.manual('tech_pause_toggle'), false);
+
+  const socket = goLive(session, sockets);
+  const before = socket.sent.length;
+  assert.equal(session.manual('timeout_left'), true);
+
+  const manual = socket.sent.slice(before).find((event) => event.type === 'manual');
+  assert.deepEqual(manual.payload, { action: 'timeout_left' });
+});
+
+test('warns and drops the oldest events past the outbox limit', () => {
+  let lastLength = 0;
+  const outbox = {
+    load: async () => null,
+    save: (state) => { lastLength = state.events.length; },
+    clear() {}
+  };
+  const { session, sockets } = createSession({ outbox });
+  const socket = goLive(session, sockets);
+  socket.close();
+
+  for (let index = 0; index < 10001; index += 1) {
+    session.handleInfo({ feature: 'me', key: 'health', value: String(index) });
+  }
+
+  assert.equal(lastLength, 10000);
+  assert.match(session.status.warning, /dropped/i);
+  session.disconnect();
+});
+

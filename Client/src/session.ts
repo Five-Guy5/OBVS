@@ -5,22 +5,28 @@ import type {
   IngestPayloads,
   LogonRequest,
   LogonResponse,
+  ManualAction,
   RoundPhase,
   Scene,
 } from '@obvs/protocol';
+import type { OutboxStore, StoredOutbox } from './outbox';
 import { isLoopbackHost } from './settings';
 
 // The Electron main runs as CommonJS and @obvs/protocol ships ESM-only, so the
 // numeric wire version is mirrored here; all event and logon shapes are imported.
 const PROTOCOL_VERSION = 1 as IngestEvent['protocolVersion'];
-const MAX_CONNECTING_EVENTS = 500;
 const OPEN = 1;
+const RECONNECT_INITIAL_MS = 1_000;
+const RECONNECT_MAX_MS = 10_000;
+const MAX_OUTBOX_EVENTS = 10_000;
+const MAX_OUTBOX_AGE_MS = 10 * 60_000;
 
-export type SessionState = 'idle' | 'connecting' | 'live' | 'stopping';
+export type SessionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'stopping';
 
 export interface SessionStatus {
   state: SessionState;
   error: string | null;
+  warning: string | null;
 }
 
 export interface SessionConfig {
@@ -50,21 +56,27 @@ export interface SessionOptions {
   allowInsecure: boolean;
   createSocket: (url: string) => SocketLike;
   onChange?: (status: SessionStatus) => void;
+  outbox?: OutboxStore;
 }
 
 /**
  * Owns the Client-side match session: GEP triggers, logon, event relay, and
- * manual Connect/Disconnect. Recovery/backoff belongs to F7; this class only
- * keeps the Match Secret in memory for a manual mid-match reconnect.
+ * manual Connect/Disconnect. Events stay in a persistent outbox for the whole
+ * Match, so a reconnect re-sends them and the Server drops them by event ID.
  */
 export class Session {
   readonly #options: SessionOptions;
   #config: SessionConfig | null = null;
   #state: SessionState = 'idle';
   #error: string | null = null;
+  #warning: string | null = null;
   #socket: SocketLike | null = null;
   #matchSecret: string | null = null;
-  #pending: IngestEvent[] = [];
+  #outbox: IngestEvent[] = [];
+  #outboxIds = new Set<string>();
+  #sentIds = new Set<string>();
+  #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #reconnectAttempt = 0;
   #suppressAuto = false;
   #auto = false;
   #autoPending = false;
@@ -78,43 +90,90 @@ export class Session {
   }
 
   get status(): SessionStatus {
-    return { state: this.#state, error: this.#error };
+    return { state: this.#state, error: this.#error, warning: this.#warning };
   }
 
   setConfig(config: SessionConfig | null): void {
+    const previous = this.#config;
     this.#config = config;
+
+    // A different server or group code cannot resume the old Match.
+    if (previous && this.#state === 'idle' &&
+        (!config || previous.serverUrl !== config.serverUrl ||
+         previous.groupCode !== config.groupCode)) {
+      this.#discardSession();
+      this.#update('idle', null);
+    }
+
     // Settings may load after GEP already reported agent select/match start.
     if (config && this.#autoPending && this.#state === 'idle' && !this.#suppressAuto) {
-      this.#connect();
+      this.#startConnect(false);
     }
   }
 
-  /** Manual Connect: keep any in-memory Match Secret so a mid-match reconnect resumes. */
+  /** Load the secret and event log saved by a previous process. */
+  restore(stored: StoredOutbox | null): void {
+    if (!stored || this.#state !== 'idle') return;
+    this.#matchSecret = stored.matchSecret;
+    for (const event of stored.events) this.#addToOutbox(event, false);
+    this.#pruneOutbox();
+    this.#persist();
+  }
+
+  /** Resume a restored live Match without waiting for another GEP trigger. */
+  resume(): void {
+    if (this.#state !== 'idle' || this.#matchSecret === null) return;
+    this.#suppressAuto = false;
+    this.#auto = true;
+    this.#autoPending = this.#config === null;
+    if (this.#config === null) {
+      this.#update('idle', 'Save connection settings before connecting.');
+      return;
+    }
+    this.#startConnect(false);
+  }
+
+  /** Manual Connect: keep any stored Match Secret so a mid-match reconnect resumes. */
   connect(): void {
+    if (this.#state !== 'idle') return;
     this.#suppressAuto = false;
     this.#auto = false;
     this.#autoPending = false;
-    this.#connect();
+    this.#startConnect(false);
   }
 
   /** Manual Disconnect: suppress automatic triggers until the next match begins. */
   disconnect(): void {
     this.#suppressAuto = true;
+    this.#auto = false;
     this.#autoPending = false;
-    this.#pending.length = 0;
+    this.#clearReconnectTimer();
+    this.#reconnectAttempt = 0;
     if (this.#state === 'idle') {
       this.#update('idle', null);
       return;
     }
-    if (this.#state === 'connecting' || this.#state === 'live') {
+    if (this.#state === 'connecting' || this.#state === 'live' ||
+        this.#state === 'reconnecting') {
       this.#update('stopping', null);
-      this.#socket?.close();
+      if (this.#socket === null) {
+        this.#update('idle', null);
+        return;
+      }
+      this.#socket.close();
     }
+  }
+
+  /** Emit a manual ingest event; false means no Match is active. */
+  manual(action: ManualAction): boolean {
+    if (!this.#isActive()) return false;
+    this.#relay(makeEvent('manual', { action }));
+    return true;
   }
 
   handleInfo(update: GepUpdate): void {
     // Only substitute when `value` is entirely absent; null is a real payload
-    // (e.g. match_start, spike_defused/detonated fire with no data).
+    // (e.g., match_start, spike_defused/detonated fire with no data).
     const value = update.value === undefined ? update.data : update.value;
     this.#handleGep('info', update.feature, update.key, value);
   }
@@ -124,11 +183,12 @@ export class Session {
     this.#handleGep('event', update.feature, update.key, value);
   }
 
-  #connect(): void {
-    if (this.#state !== 'idle') return;
+  #startConnect(reconnecting: boolean): void {
+    if (this.#state !== 'idle' && this.#state !== 'reconnecting') return;
 
     const config = this.#config;
     if (!config) {
+      this.#clearReconnectTimer();
       this.#update('idle', 'Save connection settings before connecting.');
       return;
     }
@@ -137,21 +197,22 @@ export class Session {
     try {
       url = toWebSocketUrl(config.serverUrl, this.#options.allowInsecure);
     } catch (error) {
+      this.#clearReconnectTimer();
       this.#update('idle', error instanceof Error
         ? error.message
         : 'The server URL is not valid.');
       return;
     }
 
-    this.#autoPending = false;
-    this.#update('connecting', null);
     this.#ended = false;
+    this.#sentIds.clear();
+    if (!reconnecting) this.#update('connecting', null);
 
     let socket: SocketLike;
     try {
       socket = this.#options.createSocket(url);
     } catch {
-      this.#update('idle', 'Could not connect to the server.');
+      this.#connectionFailed('Could not connect to the server.');
       return;
     }
 
@@ -166,33 +227,39 @@ export class Session {
     if (this.#matchSecret !== null) logon.matchSecret = this.#matchSecret;
 
     socket.addEventListener('open', () => {
-      if (this.#socket !== socket || this.#state !== 'connecting') return;
+      if (this.#socket !== socket) return;
+      if (this.#state !== 'connecting' && this.#state !== 'reconnecting') return;
       try {
         socket.send(JSON.stringify(logon));
       } catch {
-        this.#fail('Could not send the logon request.');
+        this.#connectionFailed('Could not send the logon request.');
       }
     });
 
     socket.addEventListener('message', (event: { data?: unknown }) => {
-      if (this.#socket !== socket || this.#state !== 'connecting') return;
+      if (this.#socket !== socket) return;
+      if (this.#state !== 'connecting' && this.#state !== 'reconnecting') return;
       const response = parseLogonResponse(event.data);
       if (!response) {
         this.#fail('The server sent an invalid logon response.');
         return;
       }
       if (!response.accepted) {
-        this.#fail(response.reason);
+        this.#rejected(response.reason);
         return;
       }
       this.#matchSecret = response.matchSecret;
+      this.#sentIds.clear();
+      this.#reconnectAttempt = 0;
+      this.#clearReconnectTimer();
       this.#update('live', null);
-      this.#flush();
+      this.#persist();
+      this.#drain();
     });
 
     socket.addEventListener('error', () => {
       if (this.#socket !== socket) return;
-      this.#fail(this.#state === 'connecting'
+      this.#connectionFailed(this.#state === 'connecting'
         ? 'Could not connect to the server.'
         : 'Connection lost.');
     });
@@ -200,14 +267,56 @@ export class Session {
     socket.addEventListener('close', () => {
       if (this.#socket !== socket) return;
       this.#socket = null;
-      if (this.#state === 'connecting') {
-        this.#update('idle', 'The server closed the connection during logon.');
-      } else if (this.#state === 'live') {
-        this.#update('idle', 'Connection lost.');
-      } else if (this.#state === 'stopping') {
+      this.#sentIds.clear();
+      if (this.#state === 'stopping') {
         this.#update('idle', null);
+      } else if (this.#state === 'connecting' || this.#state === 'reconnecting') {
+        this.#connectionFailed('The server closed the connection during logon.');
+      } else if (this.#state === 'live') {
+        this.#connectionFailed('Connection lost.');
       }
     });
+  }
+
+  #connectionFailed(message: string): void {
+    const socket = this.#socket;
+    this.#socket = null;
+    this.#sentIds.clear();
+    socket?.close();
+
+    if (this.#state === 'idle') return;
+    if (this.#state === 'stopping') {
+      this.#update('idle', null);
+      return;
+    }
+
+    if (this.#matchSecret !== null || this.#auto || this.#state === 'reconnecting') {
+      this.#update('reconnecting', message);
+      this.#scheduleReconnect();
+      return;
+    }
+
+    this.#update('idle', message);
+  }
+
+  #scheduleReconnect(): void {
+    if (this.#reconnectTimer !== null) return;
+    const delay = Math.min(
+      RECONNECT_INITIAL_MS * 2 ** this.#reconnectAttempt,
+      RECONNECT_MAX_MS,
+    );
+    this.#reconnectAttempt += 1;
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = null;
+      if (this.#state !== 'reconnecting') return;
+      this.#startConnect(true);
+    }, delay);
+  }
+
+  #clearReconnectTimer(): void {
+    if (this.#reconnectTimer === null) return;
+    clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = null;
   }
 
   #handleGep(kind: 'info' | 'event', feature: string, key: string, value: unknown): void {
@@ -236,7 +345,7 @@ export class Session {
       ending = true;
     }
 
-    if (this.#state === 'live' || this.#state === 'connecting') {
+    if (this.#isActive()) {
       this.#relay(makeEvent('gep.raw', {
         feature,
         key,
@@ -271,33 +380,39 @@ export class Session {
       this.#autoPending = false;
       const wasAuto = this.#auto;
       this.#auto = false;
-      if (wasAuto && (this.#state === 'connecting' || this.#state === 'live')) {
+      if (wasAuto && this.#isActive()) {
         this.#stop();
       }
       return;
     }
     if (this.#state !== 'idle' || this.#suppressAuto) return;
 
-    // A transition into a match scene starts a new Match; drop any old secret and round.
-    if (previous === null || previous === 'main_menu' || previous === 'practice_range') {
-      this.#matchSecret = null;
+    const newMatch = previous === null ||
+      previous === 'main_menu' ||
+      previous === 'practice_range';
+    if (newMatch) {
+      // Keep a restored secret when the app restarts in-game; a menu/range
+      // transition, or a fresh session with no secret, discards the old log.
+      if (previous !== null || this.#matchSecret === null) {
+        this.#discardSession();
+      }
       this.#roundNumber = null;
       this.#roundPhase = null;
     }
     this.#auto = true;
     this.#autoPending = true;
-    this.#connect();
+    this.#startConnect(false);
   }
 
   #onMatchStart(): void {
     if (this.#state !== 'idle' || this.#suppressAuto) return;
     if (this.#lastScene === 'main_menu' || this.#lastScene === 'practice_range') return;
-    this.#matchSecret = null;
+    if (this.#matchSecret === null) this.#discardSession();
     this.#roundNumber = null;
     this.#roundPhase = null;
     this.#auto = true;
     this.#autoPending = true;
-    this.#connect();
+    this.#startConnect(false);
   }
 
   #emitRound(capturedAt: string): void {
@@ -309,54 +424,130 @@ export class Session {
   }
 
   #relay(event: IngestEvent): void {
-    if (this.#state === 'live') {
-      this.#send(event);
-      return;
+    if (!this.#isActive()) return;
+    this.#addToOutbox(event);
+    if (this.#state === 'live') this.#drain();
+  }
+
+  #addToOutbox(event: IngestEvent, persist = true): void {
+    if (this.#outboxIds.has(event.eventId)) return;
+    this.#outboxIds.add(event.eventId);
+    this.#outbox.push(event);
+    this.#pruneOutbox();
+    if (persist) this.#persist();
+  }
+
+  #pruneOutbox(): void {
+    const cutoff = Date.now() - MAX_OUTBOX_AGE_MS;
+    let dropped = 0;
+
+    while (dropped < this.#outbox.length) {
+      const event = this.#outbox[dropped]!;
+      if (this.#outbox.length - dropped <= MAX_OUTBOX_EVENTS &&
+          Date.parse(event.capturedAt) >= cutoff) {
+        break;
+      }
+      dropped += 1;
     }
-    if (this.#state === 'connecting') {
-      // shortcut: in-memory queue only; F7 replaces this with the persistent outbox.
-      if (this.#pending.length >= MAX_CONNECTING_EVENTS) this.#pending.shift();
-      this.#pending.push(event);
+
+    if (dropped > 0) {
+      for (const event of this.#outbox.splice(0, dropped)) {
+        this.#outboxIds.delete(event.eventId);
+        this.#sentIds.delete(event.eventId);
+      }
+      this.#setWarning('Event buffer is full; the oldest events were dropped.');
     }
   }
 
-  #flush(): void {
-    for (const event of this.#pending.splice(0)) this.#send(event);
-  }
-
-  #send(event: IngestEvent): void {
+  #drain(): void {
     if (this.#state !== 'live' || this.#socket?.readyState !== OPEN) return;
-    try {
-      this.#socket.send(JSON.stringify(event));
-    } catch {
-      this.#fail('Could not send an event to the server.');
+    this.#pruneOutbox();
+
+    for (const event of this.#outbox) {
+      if (this.#sentIds.has(event.eventId)) continue;
+      try {
+        this.#socket.send(JSON.stringify(event));
+        this.#sentIds.add(event.eventId);
+      } catch {
+        this.#connectionFailed('Could not send an event to the server.');
+        return;
+      }
     }
   }
 
   #stop(): void {
-    this.#matchSecret = null;
     this.#ended = true;
-    this.#pending.length = 0;
+    this.#discardSession();
     this.#suppressAuto = false;
     this.#auto = false;
     this.#autoPending = false;
     this.#roundNumber = null;
     this.#roundPhase = null;
 
-    if (this.#state === 'idle' || this.#state === 'stopping') {
+    if (this.#state === 'idle' || this.#socket === null) {
       this.#update('idle', null);
       return;
     }
     this.#update('stopping', null);
-    this.#socket?.close();
+    this.#socket.close();
+  }
+
+  #rejected(reason: string): void {
+    this.#clearReconnectTimer();
+    this.#reconnectAttempt = 0;
+    const socket = this.#socket;
+    this.#socket = null;
+    this.#sentIds.clear();
+    this.#autoPending = false;
+
+    // A rejected resume cannot be retried; the Server's Match is gone or held
+    // by another Observer. An auth-key rejection keeps the log for a manual try.
+    if (reason.includes('Match Secret')) this.#discardSession();
+
+    this.#update('idle', reason);
+    socket?.close();
   }
 
   #fail(message: string): void {
+    this.#clearReconnectTimer();
+    this.#reconnectAttempt = 0;
     const socket = this.#socket;
     this.#socket = null;
-    this.#pending.length = 0;
+    this.#sentIds.clear();
     this.#update('idle', message);
     socket?.close();
+  }
+
+  #discardSession(): void {
+    this.#clearReconnectTimer();
+    this.#reconnectAttempt = 0;
+    this.#matchSecret = null;
+    this.#outbox.length = 0;
+    this.#outboxIds.clear();
+    this.#sentIds.clear();
+    this.#warning = null;
+    this.#options.outbox?.clear();
+  }
+
+  #persist(): void {
+    const store = this.#options.outbox;
+    if (!store) return;
+    if (this.#matchSecret === null && this.#outbox.length === 0) {
+      store.clear();
+      return;
+    }
+    store.save({ matchSecret: this.#matchSecret, events: this.#outbox });
+  }
+
+  #isActive(): boolean {
+    return this.#state === 'connecting' || this.#state === 'live' ||
+      this.#state === 'reconnecting';
+  }
+
+  #setWarning(warning: string | null): void {
+    if (this.#warning === warning) return;
+    this.#warning = warning;
+    this.#options.onChange?.(this.status);
   }
 
   #update(state: SessionState, error: string | null): void {

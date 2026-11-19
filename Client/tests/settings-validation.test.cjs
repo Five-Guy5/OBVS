@@ -1,6 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { validateSettings } = require('../dist/settings.js');
+const {
+  DEFAULT_HOTKEYS,
+  normalizeHotkeys,
+  validateSettings
+} = require('../dist/settings.js');
 
 const valid = {
   serverUrl: 'https://example.test/ingest',
@@ -43,4 +47,41 @@ test('non-string field values are rejected per field', () => {
 test('invalid input is never reported as clean', () => {
   const result = validateSettings({ ...valid, serverUrl: '' });
   assert.notDeepEqual(result.errors, {});
+});
+
+test('hotkeys default when omitted and accept accelerator text', () => {
+  assert.deepEqual(validateSettings(valid).data.hotkeys, DEFAULT_HOTKEYS);
+
+  const custom = { ...DEFAULT_HOTKEYS, techPause: 'Control+Alt+T' };
+  const result = validateSettings({ ...valid, hotkeys: custom });
+  assert.deepEqual(result.errors, {});
+  assert.equal(result.data.hotkeys.techPause, 'Control+Alt+T');
+});
+
+test('rejects malformed and duplicate hotkeys', () => {
+  const malformed = validateSettings({
+    ...valid,
+    hotkeys: { ...DEFAULT_HOTKEYS, techPause: 'Control Shift 1' }
+  });
+  assert.match(malformed.errors.hotkeys, /accelerator/i);
+
+  const duplicate = validateSettings({
+    ...valid,
+    hotkeys: { ...DEFAULT_HOTKEYS, timeoutLeft: DEFAULT_HOTKEYS.techPause }
+  });
+  assert.match(duplicate.errors.hotkeys, /different/i);
+});
+
+test('normalizeHotkeys falls back to defaults for unusable entries', () => {
+  const normalized = normalizeHotkeys({
+    techPause: 'Control+Alt+T',
+    timeoutLeft: 'bad key',
+    timeoutRight: 'control+alt+t',
+    spikePlanted: 42
+  });
+
+  assert.equal(normalized.techPause, 'Control+Alt+T');
+  assert.equal(normalized.timeoutLeft, DEFAULT_HOTKEYS.timeoutLeft);
+  assert.equal(normalized.timeoutRight, DEFAULT_HOTKEYS.timeoutRight);
+  assert.equal(normalized.spikePlanted, DEFAULT_HOTKEYS.spikePlanted);
 });

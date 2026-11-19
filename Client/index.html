@@ -12,6 +12,7 @@
   <h2>Match session</h2>
   <p><span id="session-icon" aria-hidden="true">○</span>
     <span id="session-status" role="status" aria-live="polite">Idle</span></p>
+  <p id="session-warning" role="status" aria-live="polite"></p>
   <p>
     <button id="connect" type="button">Connect</button>
     <button id="disconnect" type="button" disabled>Disconnect</button>
@@ -34,6 +35,20 @@
     <p><label for="displayName">Display name</label><br>
       <input id="displayName" type="text" required>
       <small id="displayName-error"></small></p>
+
+    <fieldset>
+      <legend>Manual hotkeys</legend>
+      <p><label for="hotkey-techPause">Tech pause toggle</label><br>
+        <input id="hotkey-techPause" type="text" autocomplete="off"></p>
+      <p><label for="hotkey-timeoutLeft">Left timeout</label><br>
+        <input id="hotkey-timeoutLeft" type="text" autocomplete="off"></p>
+      <p><label for="hotkey-timeoutRight">Right timeout</label><br>
+        <input id="hotkey-timeoutRight" type="text" autocomplete="off"></p>
+      <p><label for="hotkey-spikePlanted">Spike planted</label><br>
+        <input id="hotkey-spikePlanted" type="text" autocomplete="off"></p>
+      <small id="hotkeys-error"></small><br>
+      <small>Use accelerator format, e.g. Control+Shift+1. All four keys must differ.</small>
+    </fieldset>
 
     <button id="save" type="submit">Save settings</button>
   </form>
