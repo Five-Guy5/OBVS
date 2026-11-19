@@ -620,4 +620,3 @@ test('warns and drops the oldest events past the outbox limit', () => {
   assert.match(session.status.warning, /dropped/i);
   session.disconnect();
 });
-
